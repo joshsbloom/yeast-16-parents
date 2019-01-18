@@ -3,8 +3,8 @@ os,Ubuntu 16.04.5 LTS,
 system,X86_64, linux-gnu
 ui,X11,
 language,en_US,
-collate,en_US.UTF-8,BLAS:,/usr/lib/openblas-base/libblas.so.3
-ctype,en_US.UTF-8,LAPACK:,/usr/lib/libopenblasp-r0.2.18.so
+BLAS:,/usr/lib/openblas-base/libblas.so.3,
+LAPACK:,/usr/lib/libopenblasp-r0.2.18.so,
 ,,
 ,,
 package,loadedversion,date,source
