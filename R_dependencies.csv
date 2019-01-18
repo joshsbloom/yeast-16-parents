@@ -1,6 +1,6 @@
 version,R version 3.4.4 (2018-03-15),
 os,Ubuntu 16.04.5 LTS,
-system,X86_64, linux-gnu,
+system,X86_64, linux-gnu
 ui,X11,
 language,en_US,
 collate,en_US.UTF-8,BLAS:,/usr/lib/openblas-base/libblas.so.3
