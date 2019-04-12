@@ -1,3 +1,5 @@
+# Reconstruct neighbor-joining tree for Figure 1, also outputs crossing ring design for figure 1
+
 #This file was produced by vcfisec.
 #The command line was:	bcftools isec  -p isec_ouput /data/rrv2/genotyping/parents/parents.vcf.gz /data/rrv2/1002genomes/1011MatrixRename.vcf.gz
 
@@ -58,6 +60,7 @@ bd$tip.label.renamed[matched.strains]=colnames(par.gt.s)
 tcol=strain.loc.color[match(bd$tip.label.renamed, strain.loc.color[,1]),3]
 tcol[is.na(tcol)]='#00000000'
 
+# Figure 1 --------------------------------------------------------------------------------------------------
 # basically this, but slightly tweaked in inkscape
 pdf(file='/home/jbloom/Dropbox/RR/Figures and Tables/Figure1.pdf', width=14, height=8)
 par(mfrow=c(1,2), oma=c(1,1,1,1))
@@ -87,5 +90,5 @@ plot(g, edge.label= names(RR),
       vertex.label.color='black',
       edge.label.color= 'black') 
 dev.off()
-
+#------------------------------------------------------------------------------------------------------------------
  
