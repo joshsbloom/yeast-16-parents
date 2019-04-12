@@ -58,7 +58,8 @@ bd$tip.label.renamed[matched.strains]=colnames(par.gt.s)
 tcol=strain.loc.color[match(bd$tip.label.renamed, strain.loc.color[,1]),3]
 tcol[is.na(tcol)]='#00000000'
 
-pdf(file='/data/rrv2/Figures_and_Tables/rr_design_figure_BY_top.pdf', width=14, height=8)
+# basically this, but slightly tweaked in inkscape
+pdf(file='/home/jbloom/Dropbox/RR/Figures and Tables/Figure1.pdf', width=14, height=8)
 par(mfrow=c(1,2), oma=c(1,1,1,1))
 bdp=plot(bd, type='unrooted', 
      edge.lty=1,
@@ -87,35 +88,4 @@ plot(g, edge.label= names(RR),
       edge.label.color= 'black') 
 dev.off()
 
-  
-   #edge.color=ifelse(colnames(dissim)%in%best.match,'red', '#00000022'),
-    #tip.color=ifelse(1:length(bd$tip.label) %in% matched.strains,'red', '#00000000'),
-
  
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-    #names(RR),
-
-        #vertex.shape="pie", 
-     #vertex.pie=sv, 
-         #do.call('rbind', RR)[,2],
-     #paste('  ', names(RR)),
-
-     #vertex.pie.color=list(c('green', 'red', 'white')),
-
-#dev.off()
-#}
-
-
-#ifelse(bd$tip.label%in%best.match,T,F),
-
-
