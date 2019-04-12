@@ -98,10 +98,10 @@ hist(c(sapply(ssi, nrow), rep(0, (38*16)-length(ssi))))
 
 glength=sum(unlist(chr.lengths))
 
-load('/data/rrv2/genotyping/RData/jointPeaks5.RData')
+#load('/data/rrv2/genotyping/RData/jointPeaks5.RData')
 #jP=rbindlist(jointPeaks5, idcol='chromosome')
 #jPs=split(jP, jP$trait)
-jointPeaksFlat=rbindlist(jointPeaks5, idcol='chromosome')
+jointPeaksFlat=rbindlist(jointPeaksJS, idcol='chromosome')
 #data.frame(do.call('rbind', jointPeaks5), stringsAsFactors=F)
 names(jointPeaksFlat)[1]='chr'
 #jointPeaksFlat$chr=sapply(strsplit(jointPeaksFlat$marker, '_'), function(x) x[1])
@@ -110,8 +110,23 @@ jointPeaksFlat$gpos=gcoord.key[jointPeaksFlat$chr ]+jointPeaksFlat$pos
 
 
 
-for(pheno.iter in unique(cross.peaks.flat$trait)) {
-   png(file=paste0('/data/rrv2/Figures_and_Tables/per_trait_joint_analysis/', filename.clean(pheno.iter), '_joint.png'), width=1024, height=800)
+utraits.orig=unique(cross.peaks.flat$trait)
+utraits=utraits.orig
+utraits[34]='YNB_ph8'
+utraits[36]='YPD_15C'
+utraits[33]='YNB_ph3'
+utraits[10]='EtOH_Glu'
+utraits[37]='YPD_37C'
+utraits=gsub(';.*','', utraits)
+utraits=gsub('_', ' ', utraits)
+
+pdf(file=paste0('/home/jbloom/Dropbox/RR/Figures and Tables/SupplementaryFigure2.pdf'), width=11, height=8)
+
+for(piter in 1:length(utraits))  {
+    png(file=paste0('/home/jbloom/Dropbox/RR/Figures and Tables/other formats/SuplementaryFigure2_', piter, '.png'), width=1100, height=800)
+
+    pheno.iter=utraits.orig[piter]
+#pdf(file=paste0('/home/jbloom/Dropbox/RR/Figures and Tables/', filename.clean(pheno.iter), '_joint.pdf'), width=1024, height=800)
 
 pcnt=0
 op <- par(mfrow = c(16,1),
@@ -125,8 +140,8 @@ joint.peaks.toplot=jointPeaksFlat[jointPeaksFlat$trait==pheno.iter,]
 joint.peaks.toplot=joint.peaks.toplot[!duplicated(joint.peaks.toplot$gpos),]
 
 parent.vec=c('M22', 'BY', 'RM', 'YPS163', 'YJM145', 'CLIB413', 'YJM978', 'YJM454',
-             'YPS1009', 'I14', 'Y10', 'PW5', '273614', 'YJM981', 'CBS2888', 'CLIB219')
-
+             'YPS1009', 'I14', 'Y10', 'PW5', '273614N', 'YJM981', 'CBS2888', 'CLIB219')
+glength=1.2e7
 for(cross.iter in 1:length(crosses)){
     cross.name=crosses[cross.iter]
     jptlookup=joint.peaks.toplot[joint.peaks.toplot$fscan.markers %in% parents.list[[cross.name]]$marker.name,]
@@ -177,23 +192,23 @@ for(cross.iter in 1:length(crosses)){
              abline(v=cumsum(genome.chr.lengths), lty=2, col='lightblue')
 
         }
-    if(nrow(cross.sub.pi)>0) {
-            peak.number=c(seq_along(cross.sub.pi[,1]), c(seq_along(cross.sub.pi[,2])))
-            #peak.chr=c(cross.sub.pi$chr1, cross.sub.pi$chr2)
-            #peak.pos=as.numeric(sapply(strsplit(sapply(strsplit(c(cross.sub.pi.sig[,1], cross.sub.pi.sig[,2]), ':'), function (x) x[2]), '_'), function(x)x[1]))
-            peak.gpos=c(cross.sub.pi$gcoord1, cross.sub.pi$gcoord2)
-            text(peak.gpos, (peak.number/max(peak.number))*.9, '*', col='red', cex=4)
-          }
+   # if(nrow(cross.sub.pi)>0) {
+   #         peak.number=c(seq_along(cross.sub.pi[,1]), c(seq_along(cross.sub.pi[,2])))
+   #         #peak.chr=c(cross.sub.pi$chr1, cross.sub.pi$chr2)
+   #         #peak.pos=as.numeric(sapply(strsplit(sapply(strsplit(c(cross.sub.pi.sig[,1], cross.sub.pi.sig[,2]), ':'), function (x) x[2]), '_'), function(x)x[1]))
+   #         peak.gpos=c(cross.sub.pi$gcoord1, cross.sub.pi$gcoord2)
+   #         text(peak.gpos, (peak.number/max(peak.number))*.9, '*', col='red', cex=4)
+   #       }
 
     if(cross.iter==16){ axis(1, at=gcoord.key, labels=names(gcoord.key), cex.axis=1.5)}
 }
 title(xlab='genomic position', ylab='', outer=TRUE, cex.lab=2, 
-      main=paste(pheno.iter, '    ',  pcnt, 'total QTL       |  ', 
+      main=paste(utraits[piter], '    ',  pcnt, 'total QTL       |  ', 
                  length(joint.peaks.toplot$gpos), 'joint QTL'
                  ))
+dev.off()
 
-
-    dev.off()
 }
+   # dev.off()
 
 
