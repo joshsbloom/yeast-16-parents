@@ -1,21 +1,26 @@
 library(S4Vectors)
 library(Rfast)
-load('/data/rr/Phenotyping/NORMpheno.RData')
-load('/data/rrv2/genotyping/RData/cross.list.RData')
-load('/data/rrv2/genotyping/RData/parents.list.RData')
-source('/data/rrv2/genotyping/code/segregants_hmm_fx.R')
-# cross peaks 
-load( '/data/rrv2/genotyping/RData/FDR_cross.peaks.RData')
-
-library(data.table)
-#source('/data/rrv2/genotyping/code/mapping_fx.R')
 library(tidyr)
+library(data.table)
+library(gdata)
+library(WriteXLS)
 
+# phenotypes
+load('/data/rr/Phenotyping/NORMpheno.RData')
+# cross data
+load('/data/rrv2/genotyping/RData/cross.list.RData')
+# parental genotypes
+load('/data/rrv2/genotyping/RData/parents.list.RData')
 # add marker.name.n column
 parents.list=lapply(parents.list, function(x) {
                   z=x;
                   z$marker.name.n=paste0(z$marker.name, '_', seq(1:nrow(z)))
                   return(z) })
+#helper functions
+source('/data/rrv2/genotyping/code/segregants_hmm_fx.R')
+# cross peaks 
+load( '/data/rrv2/genotyping/RData/FDR_cross.peaks.RData')
+#source('/data/rrv2/genotyping/code/mapping_fx.R')
 
 causalSets.by.cross2=list()
 nsim=500
@@ -209,11 +214,11 @@ parents=unique(unlist(crosses.to.parents))
 parents.to.crosses=sapply(parents, function(x) sapply(crosses.to.parents, function(y) x%in%y))
 ptc=apply(parents.to.crosses, 2, function(x) rownames(parents.to.crosses)[x] )
 
+# Extract sacCer3 genomic and build set of genes, add intergenic distance between genes -----------------------------------------------------------
 library(VariantAnnotation)
 library(GenomicFeatures)
 library(ensemblVEP)
 library('org.Sc.sgd.db')
-
 txdb=makeTxDbFromGFF(file=paste0('/data/CRISPR_variant_engineering/rr_variant_oligos/',
                                  'reference/saccharomyces_cerevisiae.gff'))
 tscl=as.list(txdb)
@@ -255,6 +260,7 @@ gsplit=lapply(gsplit, function(x) {
     return(x)
 })
 geneExtend.GR2=stack(GRangesList(gsplit))
+#---------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 causalSets.by.cross=causalSets.by.cross2
@@ -419,33 +425,154 @@ QTGJ.table=do.call('rbind', QTGJ.table)
 QTGsorted=QTGJ.table[order(QTGJ.table$pCausalSum, decreasing=T),]
 QTGsorted=QTGsorted[!(QTGsorted$trait %in% c("YPD;;2","YPD;;3")),]
 # Remove hits from the two extra ypd experiments
-QTGsorted$localFDR=(cumsum(1-QTGsorted$pCausalSum))/(1:nrow(QTGsorted))
-QTGsorted$localFDR[QTGsorted$localFDR<0]=0
+QTGsorted$FDR=(cumsum(1-QTGsorted$pCausalSum))/(1:nrow(QTGsorted))
+QTGsorted$FDR[QTGsorted$FDR<0]=0
 #save(QTGsorted, file = '/data/rrv2/genotyping/RData/FDR_QTGsorted.RData')
 
-QTGsorted.resolved=QTGsorted[QTGsorted$localFDR<.2,]
+QTGsorted.resolved=QTGsorted[QTGsorted$FDR<.2,]
 Qwrite=data.frame(QTGsorted.resolved[,-grep('pCausal\\.|pCausal$', colnames(QTGsorted.resolved))])
-Qwrite=Qwrite[Qwrite$localFDR<.25,]
-library(WriteXLS)
+#Qwrite=Qwrite[Qwrite$localFDR<.2,]
 WriteXLS(Qwrite, '/data/rrv2/genotyping/RData/QTGresolved.xls')
 
 # load 
-library(gdata)
 prev.mapped=read.xls('/data/rrv2/genotyping/RData/NIHMS544073-supplement-01.xls', pattern='Table S1')
 pm=unique(as.character(prev.mapped[-1,1]))[-c(96,97)][-16]
+# HO is not segregating here and signal we see is likely due to effects of resistance casettes integrated at HO
+pm=pm[pm!='HO']
 #R> unique(QTGsorted.resolved$NAME)[which(unique(QTGsorted.resolved$NAME) %in% pm)]
 # [1] "PCA1"  "RPI1"  "CYS4"  "HO"    "PHO84" "PDR5"  "GAL3"  "CAT5"  "IRA2" 
 #[10] "IRA1"  "MKT1"  "END3"  "FLO11" "SAL1"  "CYR1"  "TAO3"  "RGA1"  "HAP1" 
-#18 
+#18
+# ??? still missing
 # SWH1 (Wang et al.)
 # TOR1 and WHI2 (Treusch et al.)
-# ENA1 (Steinmetz)
+# ENA1 (Steinmetz) ??? 
 # ENA5 (?)
 # KRE33 (desai)
-# PMR1 (us)
-# MAl11 Lit
+# PMR1 (us)         
+# MAl11 Lit         ???
+pm2=c(pm, 'SWH1', 'TOR1', 'WHI2', 'ENA1', 'ENA5', 'KRE33', 'PMR1', 'MAL11')
+unique(QTGsorted.resolved$NAME)[which(unique(QTGsorted.resolved$NAME) %in% pm2)]
+
+# enrichment of known genes at top of list
+qtgrs=QTGsorted.resolved
+qtgrs$previously_identified=qtgrs$NAME %in% pm2
+qtgdf=data.frame(qtgrs)
+
+test=rle(sort(qtgdf$ORF))
+tv=test$values[order(test$lengths,decreasing=T)]
+qtgdf$ORF=factor(qtgdf$ORF, levels=tv)
+colnames(qtgdf)[66]='FDR'
+ggplot(qtgdf, aes(x=ORF,color=trait, y=jointmaxPPC))+geom_jitter()
+
+par(oma=c(4,1,1,1))
+barplot(sapply(split(qtgdf, qtgdf$ORF), nrow), las=2, col=sapply(split(qtgdf, qtgdf$ORF), function(x)x$previously_identified[1])+1)
+tdf=data.frame(do.call('rbind', (lapply(split(qtgdf, qtgdf$ORF),function(x) x[which.min(x$FDR),]))))
+tdf=tdf[order(tdf$FDR, decreasing=F),]
+plot(-log10(tdf$FDR+.001), col=tdf$previously_identified+1, cex=tdf$previously_identified+1)
+plot((tdf$pCausalSum), col=tdf$previously_identified+1, cex=tdf$previously_identified+1)
+tdf$Rank=1:nrow(tdf)
+tdf$NAME[!tdf$previously_identified]=""
 
 
+# Figure 4 --------------------------------------------------------------------------------------------------------------------
+CG1=ggplot(tdf, aes(x=Rank, y= pCausalSum))+ theme_classic()+ylab('PPC')+
+    geom_point(size=2) +
+    geom_label_repel(force=1.5,
+                     direction='both',
+                    aes(label=NAME),
+                    segment.color = 'black',
+                    segment.alpha =.25 )+
+    geom_point(data=tdf[tdf$previously_identified,],color='red')+
+    theme(axis.text.x=element_text(size=rel(1),color='black'),
+          axis.text.y=element_text(size=rel(1),color='black'))
+
+
+
+trait='Caffeine;15mM;2' #EtOH_Glucose;;1'
+#B
+cross.name='3003'
+p1='3003'
+
+#377
+cross.name='3004'
+p2='3004'
+
+# ugly, run for each cross above -------------------------------------
+    cross=cross.list[[cross.name]]
+    if(cross.name=='A') {       cross=subset(cross, ind=!grepl('A11', as.character(cross$pheno$id)))    }
+    snames = as.character(cross$pheno$id)
+    g=pull.argmaxgeno(cross)
+ 
+    # recode based on parental genotypes 
+    seg.pcode=recode.as.allele.number(t(g),parents.list[[cross.name]])
+    #seg.recoded[[cross.name]]=seg.pcode
+   
+    # are there fixed loci ?? (no)-------------------------------
+    g.af=apply(g,2,function(x) sum(x==1))
+    parents.list[[cross.name]]$fixed=(g.af==0 | g.af==nrow(g))
+    fixed.loci=which(parents.list[[cross.name]]$fixed)
+    if(length(fixed.loci)>0) {    g=g[,-fixed.loci] }
+    #------------------------------------------------------------
+    g.r=g[,-which(duplicated(g, MARGIN=2))]
+    g.s=scale(g.r)
+
+    subPheno=lapply(NORMpheno, function(x) x[match(snames, names(x))])
+    mPheno  =sapply(subPheno, function(x) sapply(x, mean, na.rm=T))
+
+    mPheno=apply(mPheno,2, function(x) {x[is.na(x)]=mean(x, na.rm=T); return(x)})
+    mPhenos=scale(mPheno)
+#-----------------------------------------------------------------
+    lods_B=cor(mPhenos, g.s)
+    m_B=(tstrsplit(colnames(lods_B), '_', type.convert=T))
+#-----------------------------------------
+    lods_377=cor(mPhenos, g.s)
+    m_377=(tstrsplit(colnames(lods_377), '_', type.convert=T))
+#----------------------------------------------------
+
+# --- 
+    qtgi=1
+    #B=YPSxYJM
+    #377 = YJMxCLIB
+    QGset=QTGsorted[QTGsorted$shared.parent=='YJM981x',]
+
+    qgic=QGset[qtgi,]$chr
+    qgit=QGset[qtgi,]$trait
+
+    m_B_c2=m_B[[1]]==qgic
+    m_377_c2=m_377[[1]]==qgic
+    tn=match(qgit, rownames(lods_B))
+
+    d1=data.frame(pos=m_B[[2]][m_B_c2], r=lods_B[tn, m_B_c2], cross=p1, chr='chrX')
+    d2=data.frame(pos=m_377[[2]][m_377_c2], r=lods_377[tn, m_377_c2], cross=p2, chr='chrX')
+    d12=rbind(d1,d2)
+    d12$pCausal=0
+
+CG2=ggplot(d12, aes(x=pos,y=r^2, color=cross))+geom_point()+ylab(expression(r^2))+xlab('Position on chromosome X')+
+   scale_colour_manual(guide=F,values=c('black', 'blue'),
+                       labels=c("273614N x YJM981", "YJM981 x CBS2888"))+
+    theme_classic()+xlim(pos-20000, pos+20000)+
+    ylim(-.03, .3)+
+    geom_point(data=dboth, aes(x=pos,y=pCausal/1.6), color='red')+
+    geom_line(data=dboth, aes(x=pos,y=pCausal/1.6), color='red', alpha=.5)+
+    scale_y_continuous(sec.axis = sec_axis(~.*1.6, name = "Posterior probability of causality (PPC)"))+
+    geom_gene_arrow(data=c10[c10$strand=='+',], 
+                    aes(xmin=pos, xmax=end, y=-.01))+
+    geom_gene_arrow(data=c10[c10$strand=='-',], forward=F,
+                    aes(xmin=pos, xmax=end, y=-.03 ))+
+    geom_gene_label(align = "center", data=c10[c10$strand=='+',], 
+                    aes(xmin=pos, xmax=end, y=-.01,label=NAME))+
+    geom_gene_label(align = "center", data=c10[c10$strand=='-',], 
+                    aes(xmin=pos, xmax=end, y=-.03,label=NAME))+
+    theme(axis.text.x=element_text(size=rel(1),color='black'),
+          axis.text.y=element_text(size=rel(1),color='black'))
+
+ggarrange(CG2, CG1, nrow=2, labels=c('A', 'B'), heights=c(3,1))
+ggsave(file='~/Dropbox/RR/Figures and Tables/Figure4.png', width=9, height=8.58) # width=6, height=7)
+#----------------------------------------------------------------------------------------------------------------------------------
+
+
+# GO analysis ----------------------------------------------------------------------------------------------------------------------
 library(topGO)
 myGene2GO.full.table=read.delim('/data/eQTL/reference/go_annotations_sgd.txt',  sep='\t', header=F, stringsAsFactors=F)
 # data frame of gene then GO
@@ -490,9 +617,9 @@ GO.results=list()
 for( thisOntology in c("BP", "MF", "CC") ) {
         GOData = new("topGOdata", ontology=thisOntology, allGenes = testGenes, annot = annFUN.gene2GO, gene2GO = gene2GOList, nodeSize=3)
         GOresult = runTest(GOData, algorithm="classic", statistic="fisher")
-        pdf(file=paste0('/data/rrv2/Figures_and_Tables/GO/', thisOntology, '.pdf'), width=25, height=25)
-        plotGOToTree(GOData, GOresult, sigThres = 0.00005)
-        dev.off()
+        #pdf(file=paste0('/data/rrv2/Figures_and_Tables/GO/', thisOntology, '.pdf'), width=25, height=25)
+        #plotGOToTree(GOData, GOresult, sigThres = 0.00005)
+        #dev.off()
         gt=GenTable(GOData, GOresult, numChar=140, topNodes = length(score(GOresult)))
         
         genesinterms=genesInTerm(GOData, gt[,1])
@@ -504,224 +631,10 @@ for( thisOntology in c("BP", "MF", "CC") ) {
         gt$Genes=as.vector(sapply(genes.enriched.list.simple, paste, collapse=','))
         gt$GenesSystematic=   as.vector(sapply(genes.enriched.list, paste, collapse=','))
         GO.results[[thisOntology]]=gt
-        write.table(gt, file=paste0('/data/rrv2/Figures_and_Tables/GO/', '_', thisOntology, '.txt'), quote=FALSE, row.names=FALSE, col.names=TRUE, sep='\t')
+        #write.table(gt, file=paste0('/data/rrv2/Figures_and_Tables/GO/', '_', thisOntology, '.txt'), quote=FALSE, row.names=FALSE, col.names=TRUE, sep='\t')
     }
-
-#GO.results[[1]][p.adjust(GO.results[[1]]$result1,method='fdr')<.05,]
-#GO.results[[2]][p.adjust(GO.results[[2]]$result1,method='fdr')<.05,]
-#GO.results[[3]][p.adjust(GO.results[[3]]$result1,method='fdr')<.05,]
-
-# cAMP and glucose sensing
-# plasma membrane
-# PCA1 allelic heterogeneity
-
-
-
-
-
-
-
-
-
-
-
-
-test.marker='chrXIV:467219_A/G' #chrI:203922_A/G'
-test.marker=gsub(':|/', '_', test.marker)
-# match against one of the two crosses
-
-QTGsortedYPD=QTGsorted[QTGsorted$trait.1=='YPD;;1',]
-otest=as.logical(sapply(QTGsortedYPD$pCausal, function(x) sum(grepl(test.marker, names(x)))))
-QTGsortedYPD[otest,][1,]
-
-
-table(QTGsorted[QTGsorted$localFDR<.05,]$shared.parent,QTGsorted[QTGsorted$localFDR<.05,]$effect)
-
-Qwrite=data.frame(QTGsorted[,-grep('pCausal\\.|pCausal$', colnames(QTGsorted))])
-Qwrite=Qwrite[Qwrite$localFDR<.25,]
-library(WriteXLS)
-WriteXLS(Qwrite, '~/Desktop/QTGs_030818.xls')
-
-tgtable=t(table(QTGsorted[QTGsorted$localFDR<.25,]$shared.parent,QTGsorted[QTGsorted$localFDR<.25,]$effect))
-tgtable=tgtable[,colnames(parents.to.crosses)]
-
-barplot(tgtable, 
-        beside=2, las=2, col=c('black', 'grey'), main='large effect QTL direction by shared parent')
-legend("topright", legend=c("decreasing", "increasing"), fill=c("black", "grey"))
-
-
-
-# visualizing PPCs       
-trait='Cobalt_Chloride;2mM;2'
-cross.name='375'
-cross.name='A'
-p1='375'
-p2='A'
-
-    cross=cross.list[[cross.name]]
-    if(cross.name=='A') {       cross=subset(cross, ind=!grepl('A11', as.character(cross$pheno$id)))    }
-    snames = as.character(cross$pheno$id)
-    g=pull.argmaxgeno(cross)
- 
-    # recode based on parental genotypes 
-    seg.pcode=recode.as.allele.number(t(g),parents.list[[cross.name]])
-    #seg.recoded[[cross.name]]=seg.pcode
-   
-    # are there fixed loci ?? (no)-------------------------------
-    g.af=apply(g,2,function(x) sum(x==1))
-    parents.list[[cross.name]]$fixed=(g.af==0 | g.af==nrow(g))
-    fixed.loci=which(parents.list[[cross.name]]$fixed)
-    if(length(fixed.loci)>0) {    g=g[,-fixed.loci] }
-    #------------------------------------------------------------
-    g.r=g[,-which(duplicated(g, MARGIN=2))]
-    g.s=scale(g.r)
-
-    subPheno=lapply(NORMpheno, function(x) x[match(snames, names(x))])
-    mPheno  =sapply(subPheno, function(x) sapply(x, mean, na.rm=T))
-
-    mPheno=apply(mPheno,2, function(x) {x[is.na(x)]=mean(x, na.rm=T); return(x)})
-    mPhenos=scale(mPheno)
-
-    lods_B=fasterLOD(nrow(mPhenos), mPhenos, g.s)
-    m_B=(tstrsplit(colnames(lods_B), '_', type.convert=T))
-
-    lods_377=fasterLOD(nrow(mPhenos), mPhenos, g.s)
-    m_377=(tstrsplit(colnames(lods_377), '_', type.convert=T))
-
-#B=YPSxYJM
-#377 = YJMxCLIB
-QGset=QTGsorted[QTGsorted$shared.parent=='BYa',]
-
-qtgi=34
-qgic=QGset[qtgi,]$chr
-qgit=QGset[qtgi,]$trait
-
-m_B_c2=m_B[[1]]==qgic
-m_377_c2=m_377[[1]]==qgic
-tn=match(qgit, rownames(lods_B))
-
-xxlim=c(QGset[qtgi,]$pos-50000, QGset[qtgi,]$pos+50000)
-
-par(mfrow=c(2,1),mar = c(5,5,2,5))
-plot(m_B[[2]][m_B_c2],lods_B[tn, m_B_c2], ylab=paste(p1,'LOD'), xlab='chr pos', xlim=xxlim,
-     main=paste(qgit, qgic,QGset[qtgi,]$shared.parent,QGset[qtgi,]$efffect, QGset[qtgi,]$NAME), 
-     sub=round(QGset[qtgi,]$pCausalSum,2))
-abline(v=tstrsplit(QGset[qtgi,]$CI.l, '_', type.convert=T)[[2]])
-abline(v=tstrsplit(QGset[qtgi,]$CI.r, '_', type.convert=T)[[2]])
-
-segments(start(gene.GR)[as.vector(seqnames(gene.GR)==qgic)],
-         0, end(gene.GR)[as.vector(seqnames(gene.GR)==qgic)],0)
-par(new = T)
-pB=QGset[qtgi,]$pCausal[[1]]
-plot(as.numeric(tstrsplit(names(pB), '_',type.convert=T)[[2]]),
-     pB, col='red', axes=F, ylab=NA, xlab=NA, xlim=xxlim)
-axis(side = 4)
-mtext(side = 4, line = 3, 'posterior probability of causality')
-
-plot(m_377[[2]][m_377_c2],lods_377[tn, m_377_c2], ylab=paste(p2, 'LOD'), xlab='chr pos', xlim=xxlim)
-abline(v=tstrsplit(QGset[qtgi,]$CI.l.1, '_', type.convert=T)[[2]])
-abline(v=tstrsplit(QGset[qtgi,]$CI.r.1, '_', type.convert=T)[[2]])
-
-segments(start(gene.GR)[as.vector(seqnames(gene.GR)==qgic)],
-         0, end(gene.GR)[as.vector(seqnames(gene.GR)==qgic)],0)
-p377=QGset[qtgi,]$pCausal.1[[1]]
-par(new = T)
-plot(as.numeric(tstrsplit(names(p377), '_',type.convert=T)[[2]]),
-     p377, col='red', axes=F, ylab=NA, xlab=NA, xlim=xxlim)
-axis(side = 4)
-mtext(side = 4, line = 3, 'posterior probability of causality')
-
-
-
-p377=QTGsorted[1,]$pCausal.1[[1]]
-as.numeric(tstrsplit(names(p377), '_',type.convert=T)[[2]]),p377, col='red')
-
-
-
-
-
-
-#for(cross.name in crosses) {
-#    print(cross.name)
-#    parent.vcf.file=   paste0('/data/rrv2/genotyping/parents/cross_vcf/', cross.name,'_w_svar.vcf.recode.vcf.gz')
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#    
-#    library(VIGoR)
-#chrom='chrVII'
-#plist.chr=sapply(parents.list, function(x) x[x$chr==chrom,])
-#chr.markers=sapply(parents.list, function(x){ return(x$marker.name.n[x$chr==chrom]) } )
-#seg.chr.phenos=lapply(pheno.resids, function(x) { x[[chrom]] })
-#seg.chr.n=lapply(seg.chr.phenos, nrow)
-#seg.chr.phenos.scaled=lapply(seg.chr.phenos,scale)
-#
-#seg.chr.genos=mapply(function(cmm,seg.r) { t(seg.r[cmm,])} , cmm=chr.markers, seg.r=seg.recoded)
-#seg.chr.genos.scaled=lapply(seg.chr.genos, scale)
-#cmm=sapply(parents.list, function(x){ return(x$marker.name[x$chr==chrom]) } )
-##rename seg.chr.genos.scaled
-#seg.chr.genos.scaled=mapply(function(cmm,seg.r) { colnames(seg.r)=cmm; return(seg.r);}, cmm=cmm, seg.r=seg.chr.genos.scaled)
-#
-#mpmarkers=melt(cmm)
-#mpmarkers[,1]=as.character(mpmarkers[,1])
-#names(mpmarkers)=c('marker', 'cross')
-#
-#mpmarkers=separate(mpmarkers, marker, c('chr', 'pos', 'ref', 'alt'), sep='_', convert=T, remove=F)
-#mpmarkers=mpmarkers[order(mpmarkers$pos),]
-#
-#ccnt=split(mpmarkers$cross, mpmarkers$marker)
-#crosses.per.marker=sapply(ccnt, function(x) unique(x))
-#cross.cnt.per.marker=sapply(crosses.per.marker, length)
-##seg.rare=names(cross.cnt.per.marker[cross.cnt.per.marker<3])
-#
-#mm=mpmarkers[match(names(crosses.per.marker), mpmarkers$marker),-6]
-#mm=mm[order(mm$pos),]
-#
-## mapping cross marker index to joint marker table  
-#mupos=lapply(plist.chr, function(x) match(x$marker.name, mm$marker))
-## mapping cross marker to joint marker table name 
-#mucpos = mapply(function(m, p) { p$marker.name[ match(mm$marker[m], p$marker.name)] }, m=mupos, p=plist.chr )
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#cc='A'
-#tt=
-#cpeaks=cross.peaks[[1]][grep('Mang', cross.peaks[[1]]$gene),]
-#cpeaks=separate(cpeaks, pmarker, c('chr', 'pos', 'ref', 'alt', 'index'), sep='_', convert=T, remove=F)
-
-
+attach(GO.results)
+WriteXLS(c('Qwrite', 'BP', 'MF', 'CC'),
+         "/home/jbloom/Dropbox/RR/Figures and Tables/SupplementaryTable5.xls", SheetNames=c('Causal_Genes', 'GO_Biological_Process', 'GO_Molecular_Function', 'GO_Cellular_Compartment'))
+         
+# -------------------------------------------------------------------------------------------------------------------------------------

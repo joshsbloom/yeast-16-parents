@@ -1,3 +1,92 @@
+# forward stepwise procedure with FDR control
+# G'sell 2013 procedure to detect QTL per trait
+doTraitFDR=function(trait, genos, genos.full, FDR_thresh=.05, nperm=1e4, doLODdrop=T) {
+    f.found=c()
+    p.found=c()
+    q.found=c()
+    m.found=c()
+
+    n=length(trait)
+    L= (crossprod(trait,genos)/(n-1))^2 
+    mLi=which.max(L)
+    mL=max(L)
+    
+    yperm=replicate(nperm, sample(trait))
+    nullD=(crossprod(yperm,genos)/(n-1))^2
+    
+    permMax=rowMaxs(nullD,value=T)
+    pNull=1-ecdf(permMax)(mL)
+    if(pNull==0) {pNull=1/nperm}
+    
+    step=1
+    
+    repeat{
+       p.temp=c(p.found, pNull)
+       q=-mean(log(1-p.temp))
+       if(q>FDR_thresh) {break;}
+       p.found=c(p.found, pNull)
+       q.found=c(q.found, q)
+       m.found=c(m.found, colnames(genos)[mLi])
+       f.found=c(f.found, mLi)
+       print(paste('step=', step, 'max index=', colnames(genos)[mLi], 'max r^2=', mL, 'pnull=', pNull, 'fdr=', q))
+       yr=scale(residuals(lm(trait~genos[,f.found]) ))
+       L=(crossprod(yr,genos)/(n-1))^2 
+       mLi=which.max(L)
+       mL=max(L)
+       yperm=replicate(nperm, sample(yr))
+       nullD=(crossprod(yperm,genos)/(n-1))^2
+       permMax=rowMaxs(nullD, value=T) 
+       pNull=1-ecdf(permMax)(mL)
+       if(pNull==0) {pNull=1/nperm}
+       step=step+1
+   }
+   results=data.frame(fscan.markers=m.found, index=f.found, p=p.found, q=q.found, stringsAsFactors=F) 
+   if(doLODdrop) {
+       drops=doLODdrop(trait, genos.full, results$fscan.markers)
+       results=cbind(results,drops)
+   }
+   return(results)
+}
+
+# crossValidation to estimate variance explained
+# 10-fold cross validation
+doTraitCV=function(mPhenos, g.s, gall.s) {
+    cvg=cut(sample(1:nrow(mPhenos)),10)
+    levels(cvg)=as.roman(1:10)
+    cvVE=list()
+    for(cv in levels(cvg)) {
+         print(cv)
+         cQTLcv=apply(mPhenos[cvg!=cv,], 2, function(x) {
+                          set.seed(100); 
+                          return(doTraitFDR(scale(x), scale(g.s[cvg!=cv,]), scale(gall.s[cvg!=cv,]), FDR_thresh=.05, nperm=5e2, doLODdrop=F)) 
+                          })
+         predicted.r2=rep(NA, ncol(mPhenos))
+         names(predicted.r2)=colnames(mPhenos)
+         for(j in 1:ncol(mPhenos)){
+             yr=mPhenos[,j]
+             yr.train=yr
+             yr.train[cvg==cv]=NA
+             yr.test=yr
+             yr.test[cvg!=cv]=NA    
+             X2=data.frame(g.s[,unique(cQTLcv[[j]]$index)])
+             if(ncol(X2)==0) { next;}
+             # fit model on training data
+             fitme=(lm(yr.train~.-1,X2))
+             if(is.null(dim(X2))){
+                predicted=data.matrix(X2[cvg==cv])*coef(fitme)
+             }else {
+                 # estimate variance explained  
+                predicted=data.matrix(X2[cvg==cv,])%*%coef(fitme)
+            }
+            predicted.r2[j]=cor(yr.test[cvg==cv], predicted)^2
+         }
+         cvVE[[cv]]=predicted.r2
+    }
+    return(do.call('cbind', cvVE))
+}
+
+
+# fast LOD score calculation
 fasterLOD=function(n.pheno, pheno.s,gdata.s, betas=FALSE, sdx=1, pheno=NULL){
    r=crossprod(pheno.s, gdata.s)/(n.pheno-1)
    LOD=(-n.pheno*log(1-r^2))/(2*log(10))
@@ -9,6 +98,7 @@ fasterLOD=function(n.pheno, pheno.s,gdata.s, betas=FALSE, sdx=1, pheno=NULL){
    }
 }
 
+# fast t-statistic calculation for joint analysis
 fasterR2=function(n.pheno, pheno.s,gdata.s, betas=FALSE, sdx=1, pheno=NULL){
    r=(crossprod(pheno.s, gdata.s)/(n.pheno-1))
    tt=(r/sqrt(1-r^2))*sqrt(n.pheno-2)
@@ -22,6 +112,7 @@ fasterR2=function(n.pheno, pheno.s,gdata.s, betas=FALSE, sdx=1, pheno=NULL){
    #}
 }
 
+#pre-processing of phenotypes
 processPhenos_for_MM=function(s, all.strain.names){
     #s=(pheno_raw[[phenotype]])
     # fix this -----------------------------------
@@ -49,6 +140,7 @@ processPhenos_for_MM=function(s, all.strain.names){
     return(list(y=y, Z=Z, Strain=Strain, strains.with.phenos=strains.with.phenos, n.strains=n.strains))
 }  
 
+#average per genotype
 avg.nvec=function(y, un=NULL){
     if(is.null(un)) {un=names(y) }
     y.avg.l=(by(y, un, mean, na.rm=T))
@@ -58,7 +150,7 @@ avg.nvec=function(y, un=NULL){
     return(y.avg.l)
 }
 
-
+#Eskin trick for fitting single component mixed model -----------------------------------------------------------
 m.S=function (y, K = NULL, bounds = c(1e-09, 1e+09), theta=NULL, Q=NULL, X=NULL ) 
 {
     n <- length(y)
@@ -82,7 +174,6 @@ m.S=function (y, K = NULL, bounds = c(1e-09, 1e+09), theta=NULL, Q=NULL, X=NULL 
     VCs=c(Vu.opt, Ve.opt)
     return(VCs)
 }
-#---------------------------------------------------------------------------------------------------------------
 
 doEigenA_forMM=function(pheno.scaled,A ,X=NULL ) {
         n=nrow(pheno.scaled)
@@ -96,250 +187,10 @@ doEigenA_forMM=function(pheno.scaled,A ,X=NULL ) {
         Q = SHbS.system$vectors[, 1:(n - p)]
         return(list(theta=theta, Q=Q))
 }
+#---------------------------------------------------------------------------------------------------------------
+
+# Calculate BLUPs
 calc.BLUPS= function(G,Z,Vinv,y,X,B ){    G%*%crossprod(Z,Vinv)%*%(y- X%*%B)    }
-
-
-find.background.QTL = function (t.tpm.matrix, pheno.scaled, gdata, gdata.scaled ,bck.thresh=3.5,
-                                chromosomes=NULL, covariates=NULL) {
-    if(is.null(covariates)) { covariates=matrix(1, nrow(t.tpm.matrix), 1) }
-
-    if(is.null(chromosomes)) { chromosomes=paste0('chr', as.roman(1:16)) } 
-    cvec=(do.call('rbind', strsplit(colnames(gdata), '_'))[,1])
-
-    # Iteration 1  (find background QTL effects)
-    LODS=fasterLOD(nrow(pheno.scaled),pheno.scaled,gdata.scaled)
-    # lists to hold LODs, markers, and scaled markers by chromosome----------------
-    LODS.by.chr=list()
-    gdata.s.by.chr=list()
-    gdata.by.chr=list()
-    for(cc in chromosomes) {   
-            LODS.by.chr[[cc]]=LODS[,which(cvec %in% cc)]   
-            gdata.s.by.chr[[cc]]=gdata.scaled[,which(cvec %in% cc)]   
-            gdata.by.chr[[cc]]=gdata[,which(cvec %in% cc)]   
-    }
-    #-----------------------------------------------------------------------------
-     
-    # max LOD per chromosome
-    max.lod.chr=lapply(LODS.by.chr, function(x) { apply(x,1,max) })
-    # index of max LOD per chromosome
-    max.lod.chr.ind=lapply(LODS.by.chr, function(x) { apply(x,1,which.max) })
-
-    # pulls out the marker index (by chromosome) of the peak marker 
-    pmarker.chr.ind =  mapply(function(x,y,z) { 
-        h=y[x>bck.thresh]
-        i=colnames(z)[h]
-        names(i)=names(h)
-        return(i)
-        },  max.lod.chr, max.lod.chr.ind,gdata.by.chr)
-
-    pmarker.chr.ind.df=data.frame(chr=rep(names(pmarker.chr.ind), sapply(pmarker.chr.ind, length)),
-             gene=as.vector(do.call('c', lapply(pmarker.chr.ind, function(x) names(x)))),
-             marker=as.vector(do.call('c', lapply(pmarker.chr.ind, function(x) (x)))), stringsAsFactors=F)
-    pbg=split(pmarker.chr.ind.df$marker, pmarker.chr.ind.df$gene)
-
-    # Iteration 2--------------------------------------------------------------------------------------------
-    plist=lapply(colnames(t.tpm.matrix), function(i) { 
-         if(!(i %in% names(pbg)) ) {  return(pheno.scaled[,i]) } 
-         else{ residuals(lm(t.tpm.matrix[,i]~covariates+gdata[,pbg[[i]]]) )  }
-    })
-    p.resid1=do.call('cbind', plist)
-    colnames(p.resid1)=colnames(pheno.scaled)
-    pheno.scaled=scale(p.resid1)
-    LODS1=fasterLOD(nrow(pheno.scaled),pheno.scaled,gdata.scaled)
-    LODS1.by.chr=list()
-    for(cc in chromosomes) { LODS1.by.chr[[cc]]=LODS1[,which(cvec %in% cc)]   }
-    max.lod1.chr = lapply(LODS1.by.chr, function(x) { apply(x,1,max) })
-    max.lod1.chr.ind = lapply(LODS1.by.chr, function(x) { apply(x,1,which.max) })
-    pmarker1.chr.ind = mapply(function(x,y,z) { 
-        h=y[x>bck.thresh]
-        i=colnames(z)[h]
-        names(i)=names(h)
-        return(i)
-        },  max.lod1.chr, max.lod1.chr.ind,gdata.by.chr)
-    pmarker1.chr.ind.df=data.frame(chr=rep(names(pmarker1.chr.ind), sapply(pmarker1.chr.ind, length)),
-             gene=as.vector(do.call('c', lapply(pmarker1.chr.ind, function(x) names(x)))),
-             marker=as.vector(do.call('c', lapply(pmarker1.chr.ind, function(x) (x)))), stringsAsFactors=F)
-    pbg1=split(pmarker1.chr.ind.df$marker, pmarker1.chr.ind.df$gene)
-    pbg.merge=pbg
-    for(i in names(pbg1)){    pbg.merge[[i]]=c(pbg.merge[[i]], pbg1[[i]]) }
-
-    # Iteration 3--------------------------------------------------------------------------------------------
-    plist=lapply(colnames(t.tpm.matrix), function(i) { 
-         if(!(i %in% names(pbg.merge)) ) {  return(pheno.scaled[,i])} 
-         else{ residuals(lm(t.tpm.matrix[,i]~covariates+gdata[,pbg.merge[[i]]]) )    }
-    })
-    p.resid2=do.call('cbind', plist)
-    colnames(p.resid2)=colnames(pheno.scaled)
-    pheno.scaled=scale(p.resid2)
-    LODS2=fasterLOD(nrow(pheno.scaled),pheno.scaled,gdata.scaled)
-    LODS2.by.chr=list()
-    for(cc in chromosomes) {    LODS2.by.chr[[cc]]=LODS2[,which(cvec %in% cc)]   }
-    max.lod2.chr=lapply(LODS2.by.chr, function(x) { apply(x,1,max) })
-    max.lod2.chr.ind=lapply(LODS2.by.chr, function(x) { apply(x,1,which.max) })
-    pmarker2.chr.ind =  mapply(function(x,y,z) { 
-        h=y[x>bck.thresh]
-        i=colnames(z)[h]
-        names(i)=names(h)
-        return(i)
-        },  max.lod2.chr, max.lod2.chr.ind,gdata.by.chr)
-    pmarker2.chr.ind.df=data.frame(chr=rep(names(pmarker2.chr.ind), sapply(pmarker2.chr.ind, length)),
-             gene=as.vector(do.call('c', lapply(pmarker2.chr.ind, function(x) names(x)))),
-             marker=as.vector(do.call('c', lapply(pmarker2.chr.ind, function(x) (x)))), stringsAsFactors=F)
-    pbg2=split(pmarker2.chr.ind.df$marker, pmarker2.chr.ind.df$gene)
-
-    pbg.final=pbg.merge
-    for(i in names(pbg2)){    pbg.final[[i]]=c(pbg.final[[i]], pbg2[[i]]) }
-
-    pm.chr.ind.df=rbind(pmarker.chr.ind.df, pmarker1.chr.ind.df, pmarker2.chr.ind.df)
-    background.QTL=list()
-    for(cc in chromosomes) {
-        background.QTL[[cc]]=split(pm.chr.ind.df$marker[pm.chr.ind.df$chr!=cc], pm.chr.ind.df$gene[pm.chr.ind.df$chr!=cc]) 
-    }
-    return(background.QTL)
-    }
-
-
-
-
-
-mapQTL=function( background.QTL, t.tpm.matrix, pheno.scaled, 
-                gdata, gdata.scaled, 
-                chromosomes=NULL,
-                n.perm=1000, FDR.thresh=.05, Arandom=TRUE, covariates=NULL) {
-
-    if(is.null(covariates)) { covariates=matrix(1, nrow(t.tpm.matrix), 1) }
-    if(is.null(chromosomes)) { chromosomes=paste0('chr', as.roman(1:16)) } 
-    cvec=(do.call('rbind', strsplit(colnames(gdata), '_'))[,1])
-
-    gdata.s.by.chr=list()
-    gdata.by.chr=list()
-    for(cc in chromosomes) {   
-            gdata.s.by.chr[[cc]]=gdata.scaled[,which(cvec %in% cc)]   
-            gdata.by.chr[[cc]]=gdata[,which(cvec %in% cc)]   
-    }
-
-    peakList=list()
-    #LODmatrix=list()
-    for(cc in chromosomes) {  
-         print(cc) 
-         plist=lapply(colnames(t.tpm.matrix), function(i) { 
-              if(!(i %in% names(background.QTL[[cc]])) ) { return(  residuals(lm(t.tpm.matrix[,i]~covariates)) ) }
-              else{  residuals(lm(t.tpm.matrix[,i]~covariates+gdata[,background.QTL[[cc]][[i]]]) ) }
-         })
-         preal=do.call('cbind', plist)
-         colnames(preal)=colnames(t.tpm.matrix)
-         
-         presid=preal
-
-         # remove residual additive effect
-         if(Arandom) {
-            cloco=match(cc, names(gdata.by.chr))
-            clocoM=do.call('cbind', gdata.s.by.chr[-cloco] )
-            Aloco=tcrossprod(clocoM)/ncol(clocoM)
-            eigA=doEigenA_forMM(presid,Aloco)
-            svdAloco=svd(Aloco)
-            pb=txtProgressBar(min=1, max=ncol(presid), style=3)
-            for(tp in 1:ncol(presid)){
-                 setTxtProgressBar(pb,tp)
-                rr=m.S(presid[,tp], K=Aloco,  theta=eigA$theta, Q=eigA$Q)
-                ###W=solve(rr[1]*Aloco+rr[2]*diag(nrow(presid)))
-                W=svdAloco$u %*% tcrossprod(diag(1/((svdAloco$d*rr[1])+(rr[2]))), svdAloco$v)
-                if(rr[1]>0) {
-                      blups=calc.BLUPS(rr[1]*Aloco,diag(nrow(presid)),W,presid[,tp],matrix(1,nrow(presid),1),0 )[,1]
-                      presid[,tp]=as.vector(presid[,tp] - blups)
-                }
-            }
-            rm(W)
-            close(pb)
-         }
-         
-         preal=presid
-         presid=scale(presid)
-         
-         #pscale=pheno.scaled
-         obsLOD = fasterLOD(nrow(preal),presid,gdata.s.by.chr[[cc]],betas=TRUE,pheno=preal)
-         findingPeaks=TRUE
-         jump=1
-
-        while(findingPeaks==TRUE) {
-            max.obsLOD=apply(obsLOD$LOD,1,max)   
-            max.ind.obsLOD=apply(obsLOD$LOD,1,which.max)   
-
-            permLOD=matrix(0, length(max.obsLOD), n.perm)
-           
-           # print('doing permutations')
-           # pb =txtProgressBar(min = 1, max =n.perm, style = 3)
-            for(i in 1:n.perm) {
-           #      setTxtProgressBar(pb, i)
-                 permLOD[,i]=apply(fasterLOD(nrow(presid),presid[sample(nrow(presid)),], gdata.s.by.chr[[cc]]),1,max)
-            }
-           #close(pb)
-           
-           obsPcnt = sapply(seq(1.5, 9, .05), function(thresh) { sum(max.obsLOD>thresh) }   )
-           names(obsPcnt) = seq(1.5, 9, .05)
-           if(sum(obsPcnt)<3) {break}
-           # expected number of QTL peaks with LOD greater than threshold
-           expPcnt = sapply(seq(1.5, 9, .05),  
-                             function(thresh) { 
-                                    #print(thresh); 
-                                    mean(apply(permLOD, 2, function(ll) {sum(ll>thresh) }) )
-                                } )
-          names(expPcnt) = seq(1.5, 9, .05)
-          pFDR = expPcnt/obsPcnt
-          pFDR[is.na(pFDR)]=0
-          pFDR[!is.finite(pFDR)]=0
-          #to make sure this is monotonic
-          pFDR = rev(cummax(rev(pFDR)))
-          fdrFX=approxfun(pFDR, seq(1.5,9,.05))
-          thresh=fdrFX(FDR.thresh)
-          print(paste('FDR Thresh 5%', thresh)) 
-          peak.gene.ind=max.ind.obsLOD[which(max.obsLOD>thresh)]
-
-          if(length(peak.gene.ind)>0) { 
-              findingPeaks=TRUE 
-              pldf=data.frame(gene=names(peak.gene.ind),
-                              pmarker=colnames(gdata.by.chr[[cc]])[peak.gene.ind], 
-                              pcind=as.vector(peak.gene.ind),
-                              stringsAsFactors=F)
-              pldf$r=obsLOD$r[cbind(pldf$gene, pldf$pmarker)]
-              pldf$LOD=obsLOD$LOD[cbind(pldf$gene, pldf$pmarker)]
-              lodInt=matrix(NA,nrow(pldf),2)
-              #Lmat=obsLOD$LOD[pldf$gene,]
-              for(peak in 1:nrow(pldf)){
-                 int.range=range(which(obsLOD$LOD[pldf[peak,]$gene,]>pldf[peak,]$LOD-1.5)) 
-                 lodInt[peak,]=colnames(gdata.by.chr[[cc]])[int.range]
-                 #if(is.null(nrow(Lmat))) {Lmat[!(c(1:length(Lmat)) %in% seq(int.range[1], int.range[2]))]=0 }
-                 #else {Lmat[peak, !(c(1:ncol(Lmat)) %in% seq(int.range[1], int.range[2]))]=0 }
-              }
-              pldf$CI.l=lodInt[,1]
-              pldf$CI.r=lodInt[,2]
-              peakList[[cc]][[jump]]=pldf
-              
-              #LODmatrix[[cc]][[jump]]=Lmat
-              presid.tmp=matrix(0, nrow(t.tpm.matrix), nrow(pldf))
-              rownames(presid.tmp)=rownames(t.tpm.matrix)
-              colnames(presid.tmp)=pldf$gene
-             
-              pldfm = do.call('rbind', peakList[[cc]])
-              found.q.covs=split(pldfm$pmarker, pldfm$gene)
-              
-              for(i in pldf$gene){
-                  # modified 041017
-                  #if(!(i %in% names(background.QTL[[cc]])) ) {
-                  #    presid.tmp[,i]=scale(residuals(lm(t.tpm.matrix[,i]~covariates+gdata[,found.q.covs[[i]]]))) }
-                  #else{
-                  #   presid.tmp[,i]=scale(residuals(lm(t.tpm.matrix[,i]~covariates+gdata[,background.QTL[[cc]][[i]]]+gdata[,found.q.covs[[i]]])) ) }
-                  presid.tmp[,i]=scale(residuals(lm(presid[,i]~gdata[,found.q.covs[[i]]])))
-              }
-              obsLOD = fasterLOD(nrow(presid.tmp),presid.tmp,gdata.s.by.chr[[cc]],betas=TRUE, pheno=presid.tmp)
-              presid=presid.tmp
-              jump=jump+1 
-          } else {findingPeaks=FALSE} 
-    }
-    }
-    return(peakList)
-}
-
 
 
 # calculate chromosome residuals
@@ -418,179 +269,8 @@ calcChromosomeResiduals=function(per_cross_peaks, pmatrix, gdata, gdata.scaled, 
 
     }
 
-mapJointQTLs=function(n.perm=100, FDR.thresh=.05, parents.list, pheno.resids, seg.recoded) {
-    jointPeaks=list()
-    jointLODs=list()
 
-    for( chrom in unique.chrs) {
-        plist.chr=sapply(parents.list, function(x) x[x$chr==chrom,])
-        chr.markers=sapply(parents.list, function(x){ return(x$marker.name.n[x$chr==chrom]) } )
-        seg.chr.phenos=lapply(pheno.resids, function(x) { x[[chrom]] })
-        seg.chr.n=lapply(seg.chr.phenos, nrow)
-        seg.chr.phenos.scaled=lapply(seg.chr.phenos,scale)
-
-        seg.chr.genos=mapply(function(cmm,seg.r) { t(seg.r[cmm,])} , cmm=chr.markers, seg.r=seg.recoded)
-        seg.chr.genos.scaled=lapply(seg.chr.genos, scale)
-        cmm=sapply(parents.list, function(x){ return(x$marker.name[x$chr==chrom]) } )
-        #rename seg.chr.genos.scaled
-        seg.chr.genos.scaled=mapply(function(cmm,seg.r) { colnames(seg.r)=cmm; return(seg.r);}, cmm=cmm, seg.r=seg.chr.genos.scaled)
-
-        mpmarkers=melt(cmm)
-        mpmarkers[,1]=as.character(mpmarkers[,1])
-        names(mpmarkers)=c('marker', 'cross')
-
-       mpmarkers=separate(mpmarkers, marker, c('chr', 'pos', 'ref', 'alt'), sep='_', convert=T, remove=F)
-       mpmarkers=mpmarkers[order(mpmarkers$pos),]
-
-       ccnt=split(mpmarkers$cross, mpmarkers$marker)
-       crosses.per.marker=sapply(ccnt, function(x) unique(x))
-       cross.cnt.per.marker=sapply(crosses.per.marker, length)
-       seg.rare=names(cross.cnt.per.marker[cross.cnt.per.marker<3])
-
-       mm=mpmarkers[match(names(crosses.per.marker), mpmarkers$marker),-6]
-       mm=mm[order(mm$pos),]
-
-       # mapping cross marker index to joint marker table  
-       mupos=lapply(plist.chr, function(x) match(x$marker.name, mm$marker))
-       # mapping cross marker to joint marker table name 
-       mucpos = mapply(function(m, p) { p$marker.name[ match(mm$marker[m], p$marker.name)] }, m=mupos, p=plist.chr )
-       peakList=list()
-       presid=seg.chr.phenos.scaled
-
-       jointLOD=mapply(function(n,p,g) {
-                             fasterLOD(n,p,g)
-                             }, n=seg.chr.n, p=presid, g=seg.chr.genos.scaled)
-       jL=matrix(0,41, nrow(mm))
-       rownames(jL)=colnames(seg.chr.phenos[[1]])
-       colnames(jL)=mm$marker
-       upos=colnames(jL)
-
-       for(cc in crosses){  
-          censor.me=jointLOD[[cc]]
-          jL[,mupos[[cc]]]=jL[,mupos[[cc]]]+censor.me 
-       }
-    
-       findingPeaks=TRUE
-       jump=1
-       while(findingPeaks==TRUE) {
-            max.obsLOD=apply(jL, 1, max)
-            max.obsLOD.indG=apply(jL, 1, which.max)
-            max.obsLOD.uposG=upos[apply(jL, 1, which.max)]
-            max.ind.obsLOD=sapply(mucpos, function(x) sapply(max.obsLOD.uposG, function(y) which(x==y)))
-            rownames(max.ind.obsLOD)=rownames(jL)
-            permLOD=matrix(0, length(max.obsLOD), n.perm)
-            pb =txtProgressBar(min = 1, max =n.perm, style = 3)
-            for(i in 1:n.perm) {
-                setTxtProgressBar(pb, i)
-                jointLODp=mapply(function(n,p,g) {
-                              fasterLOD(n,p[sample(n),],g)
-                              }, n=seg.chr.n, p=presid, g=seg.chr.genos.scaled)
-                jLp=matrix(0,ncol(presid[[1]]), length(upos))
-                rownames(jLp)=colnames(presid[[1]])
-                for(cc in crosses){  jLp[,mupos[[cc]]]=jLp[,mupos[[cc]]]+jointLODp[[cc]] }
-                permLOD[,i]=apply(jLp, 1, max)
-            }
-            close(pb)
-
-            obsPcnt = sapply(seq(1.5, 9, .05), function(thresh) { sum(max.obsLOD>thresh) }   )
-                       names(obsPcnt) = seq(1.5, 9, .05)
-                       if(sum(obsPcnt)<3) {break}
-                       # expected number of QTL peaks with LOD greater than threshold
-            expPcnt = sapply(seq(1.5, 9, .05),  
-                                         function(thresh) { 
-                                                #print(thresh); 
-                                                mean(apply(permLOD, 2, function(ll) {sum(ll>thresh) }) )
-                                            } )
-            names(expPcnt) = seq(1.5, 9, .05)
-            #plot(seq(1.5, 9, .05), expPcnt/obsPcnt)
-            pFDR = expPcnt/obsPcnt
-            pFDR[is.na(pFDR)]=0
-            pFDR[!is.finite(pFDR)]=0
-                      #to make sure this is monotonic
-            pFDR = rev(cummax(rev(pFDR)))
-            fdrFX=approxfun(pFDR, seq(1.5,9,.05))
-            thresh=fdrFX(FDR.thresh)
-            print(paste('FDR Thresh 5%', thresh)) 
-
-            peak.gene.ind=max.ind.obsLOD[which(max.obsLOD>thresh),]
-            if(is.null(dim(peak.gene.ind)) ) {
-                peak.gene.ind=matrix(peak.gene.ind,1)
-                rownames(peak.gene.ind)=names(which(max.obsLOD>thresh))
-                colnames(peak.gene.ind)=colnames(max.ind.obsLOD)
-                keep.traits=names(which(max.obsLOD>thresh))
-            } else {    keep.traits=names(apply(peak.gene.ind, 1, function(x) length(unlist(x)))>0) }
-            print(length(keep.traits))
-            if(nrow(peak.gene.ind)>0 & (length(keep.traits)>0)) {
-                jointLODs[[chrom]][[jump]]=jointLOD
-                #tr=1
-                #plot(upos, jL[tr,], col='red', main=paste(rownames(jL)[tr], jump), ylab='LOD', sub=max.obsLOD.uposG[tr])
-                #for(i in 1:16) {
-                #    points(upos[mupos[[i]]], jointLOD[[i]][tr,] )#, ylim=c(0,210))               
-                # 
-                # }
-                # abline(v=max.obsLOD.uposG[tr], col='red')
-                
-                  findingPeaks=TRUE 
-                  peak.gene.markers=matrix(NA, nrow(peak.gene.ind), ncol(peak.gene.ind))
-                  rownames(peak.gene.markers)=rownames(peak.gene.ind)
-                  colnames(peak.gene.markers)=colnames(peak.gene.ind)
-
-                  for(cc in crosses) {
-                     if(nrow(peak.gene.ind)==1) {
-                        peak.gene.markers[,cc]=mucpos[[cc]][unlist(peak.gene.ind[,cc])[1]]
-                     } else {
-                     peak.ind=na.omit(sapply(peak.gene.ind[,cc], function(x) x[1]))
-                        if(length(peak.ind)>0) {
-                             peak.gene.markers[names(peak.ind),cc]=mucpos[[cc]][peak.ind]
-                        }
-                     }
-                  }
-                
-                  peak.gene.markers=melt(peak.gene.markers)
-                  peak.gene.markers=data.frame(na.omit(apply(peak.gene.markers,2, as.character)), stringsAsFactors=F)
-                  names(peak.gene.markers)=c('trait', 'cross', 'marker')
-                  peak.gene.markers$jointPeak=paste0(chrom, '_', jump)
-                  peakList[[jump]]=peak.gene.markers
-                
-                 pldfm = do.call('rbind', peakList)
-                 found.t.covs=split(pldfm, pldfm$trait)
-
-                 # at this point remove traits for which no linkages were found in the current step
-                 if(length(keep.traits)==1){
-                        presid.tmp=lapply(presid, function(x) { z=matrix(x[,keep.traits], 1);
-                                          rownames(z)=keep.traits; 
-                                          colnames(z)=rownames(x);
-                                          return(t(z));})
-                 }else {        
-                     presid.tmp=lapply(presid, function(x) x[,keep.traits])
-                 }
-                  for(tt in keep.traits) {
-                       found.q.covs = split(found.t.covs[[tt]], found.t.covs[[tt]]$cross)
-                       for(cc in names(found.q.covs)) {
-                            presid.tmp[[cc]][,tt]=scale(residuals(lm(presid.tmp[[cc]][,tt]~seg.chr.genos.scaled[[cc]][,found.q.covs[[cc]]$marker])))
-                       }
-                 } 
-                jointLOD=mapply(function(n,p,g) {
-                              fasterLOD(n,p,g)
-                              }, n=seg.chr.n, p=presid.tmp, g=seg.chr.genos.scaled)
-                jL=matrix(0,length(keep.traits), length(upos))
-                rownames(jL)=colnames(presid.tmp[[1]])
-                for(cc in crosses){ 
-                    censor.me=jointLOD[[cc]]
-                    #censor.me[censor.me<3]=0
-                    jL[,mupos[[cc]]]=jL[,mupos[[cc]]]+censor.me} 
-                if(nrow(jL)==1) {findingPeaks=FALSE}
-                presid=presid.tmp
-                jump=jump+1 
-            } else {findingPeaks=FALSE } 
-        }
-    jointPeaks[[chrom]]=do.call('rbind', peakList)
-    }
-    return(list(jointPeaks=jointPeaks, jointLODs=jointLODs))
-}
-
-
-
+# calculate 1.5 LOD drop confidence intervals
 doLODdrop=function(trait, genos.full, f.found) {
     ys=trait
     gs=genos.full
@@ -635,97 +315,9 @@ doLODdrop=function(trait, genos.full, f.found) {
 }
 
 
-# forward stepwise procedure with FDR control
-# G'sell 2013 procedure to detect QTL per trait
-doTraitFDR=function(trait, genos, genos.full, FDR_thresh=.05, nperm=1e4, doLODdrop=T) {
-    f.found=c()
-    p.found=c()
-    q.found=c()
-    m.found=c()
 
-    n=length(trait)
-    L= (crossprod(trait,genos)/(n-1))^2 
-    mLi=which.max(L)
-    mL=max(L)
-    
-    yperm=replicate(nperm, sample(trait))
-    nullD=(crossprod(yperm,genos)/(n-1))^2
-    
-    permMax=rowMaxs(nullD,value=T)
-    pNull=1-ecdf(permMax)(mL)
-    if(pNull==0) {pNull=1/nperm}
-    
-    step=1
-    
-    repeat{
-       p.temp=c(p.found, pNull)
-       q=-mean(log(1-p.temp))
-       if(q>FDR_thresh) {break;}
-       p.found=c(p.found, pNull)
-       q.found=c(q.found, q)
-       m.found=c(m.found, colnames(genos)[mLi])
-       f.found=c(f.found, mLi)
-       #print(paste('step=', step, 'max index=', colnames(genos)[mLi], 'max r^2=', mL, 'pnull=', pNull, 'fdr=', q))
-       yr=scale(residuals(lm(trait~genos[,f.found]) ))
-       L=(crossprod(yr,genos)/(n-1))^2 
-       mLi=which.max(L)
-       mL=max(L)
-       yperm=replicate(nperm, sample(yr))
-       nullD=(crossprod(yperm,genos)/(n-1))^2
-       permMax=rowMaxs(nullD, value=T) 
-       pNull=1-ecdf(permMax)(mL)
-       if(pNull==0) {pNull=1/nperm}
-       step=step+1
-   }
-   results=data.frame(fscan.markers=m.found, index=f.found, p=p.found, q=q.found, stringsAsFactors=F) 
-   if(doLODdrop) {
-       drops=doLODdrop(trait, genos.full, results$fscan.markers)
-       results=cbind(results,drops)
-   }
-   return(results)
-}
 
-# crossValidation to estimate variance explained
-# 10-fold cross validation
-doTraitCV=function(mPhenos, g.s, gall.s) {
-    cvg=cut(sample(1:nrow(mPhenos)),10)
-    levels(cvg)=as.roman(1:10)
-    cvVE=list()
-    for(cv in levels(cvg)) {
-         print(cv)
-         cQTLcv=apply(mPhenos[cvg!=cv,], 2, function(x) {
-                          set.seed(100); 
-                          return(doTraitFDR(scale(x), scale(g.s[cvg!=cv,]), scale(gall.s[cvg!=cv,]), FDR_thresh=.05, nperm=5e2, doLODdrop=F)) 
-                          })
-         predicted.r2=rep(NA, ncol(mPhenos))
-         names(predicted.r2)=colnames(mPhenos)
-         for(j in 1:ncol(mPhenos)){
-             yr=mPhenos[,j]
-             yr.train=yr
-             yr.train[cvg==cv]=NA
-             yr.test=yr
-             yr.test[cvg!=cv]=NA    
-             X2=data.frame(g.s[,unique(cQTLcv[[j]]$index)])
-             if(ncol(X2)==0) { next;}
-             # fit model on training data
-             fitme=(lm(yr.train~.-1,X2))
-             if(is.null(dim(X2))){
-                predicted=data.matrix(X2[cvg==cv])*coef(fitme)
-             }else {
-                 # estimate variance explained  
-                predicted=data.matrix(X2[cvg==cv,])%*%coef(fitme)
-            }
-            predicted.r2[j]=cor(yr.test[cvg==cv], predicted)^2
-         }
-         cvVE[[cv]]=predicted.r2
-    }
-    return(do.call('cbind', cvVE))
-}
-
-#test=fs(g.s, mPhenos[,1], maxsteps=20, verbose=T, normalize=F, intercept=F)
-#testF=fsInf(test, verbose=T)
-#testP=forwardStop(testF, alpha=.05)
-
+# given output from regress() extract relevant components of interest
 extractVarCompResultsR = function(r) {list(sigma=r$sigma, sigma.cov=r$sigma.cov, #W=r$W,
                                           Bhat=as.vector(r$Beta), llik=as.vector(r$llik)) }
 
@@ -745,6 +337,7 @@ doAdditiveVC=function(mPhenos, g.s) {
     colnames(results)[3:4]=paste0( colnames(results)[3:4], '.SE')
     return(results)
 }
+
 #faster version but no standard errors
 do_VC_additive_only_average=function(mPheno, g.s) {
     A=tcrossprod(g.s)/(ncol(g.s))
@@ -760,149 +353,10 @@ do_VC_additive_only_average=function(mPheno, g.s) {
     VC_A$trait=rownames(VC_A)
     return(VC_A)
 }
-# joint QTLs 5 (estimate joint, fit within, repeat)
-# fixed effect per joint detected marker, FDR control for model selection
-mapJointQTLs3=function(n.perm=1e4, FDR_thresh=.2, parents.list, pheno.resids, seg.recoded) {
-    FDR_thresh=.05
-    n.perm=1e3
-    jointPeaks5=list()
-    for( chrom in unique.chrs) {
-        print(chrom)
-        plist.chr=sapply(parents.list, function(x) x[x$chr==chrom,])
-        chr.markers=sapply(parents.list, function(x){ return(x$marker.name.n[x$chr==chrom]) } )
-        seg.chr.phenos=lapply(pheno.resids, function(x) { x[[chrom]] })
-        seg.chr.n=lapply(seg.chr.phenos, nrow)
-        seg.chr.phenos.scaled=lapply(seg.chr.phenos,scale)
-       
-        cmm=sapply(parents.list, function(x){ return(x$marker.name[x$chr==chrom]) } )
-
-        seg.chr.genos=mapply(function(cmm,seg.r) { t(seg.r[cmm,])} , cmm=chr.markers, seg.r=seg.recoded)
-        seg.chr.genos=mapply(function(cmm,seg.r) { colnames(seg.r)=cmm; return(seg.r);}, cmm=cmm, seg.r=seg.chr.genos)
-
-        seg.chr.genos.scaled=lapply(seg.chr.genos, scale)
-        #rename seg.chr.genos.scaled
-        #seg.chr.genos.scaled=mapply(function(cmm,seg.r) { colnames(seg.r)=cmm; return(seg.r);}, cmm=cmm, seg.r=seg.chr.genos.scaled)
-
-        mpmarkers=melt(cmm)
-        mpmarkers[,1]=as.character(mpmarkers[,1])
-        names(mpmarkers)=c('marker', 'cross')
-
-       mpmarkers=separate(mpmarkers, marker, c('chr', 'pos', 'ref', 'alt'), sep='_', convert=T, remove=F)
-       mpmarkers=mpmarkers[order(mpmarkers$pos),]
-
-       ccnt=split(mpmarkers$cross, mpmarkers$marker)
-       crosses.per.marker=sapply(ccnt, function(x) unique(x))
-       cross.cnt.per.marker=sapply(crosses.per.marker, length)
-       seg.rare=names(cross.cnt.per.marker[cross.cnt.per.marker<3])
-
-       mm=mpmarkers[match(names(crosses.per.marker), mpmarkers$marker),-6]
-       mm=mm[order(mm$pos),]
-
-       # mapping cross marker index to joint marker table  
-       mupos=lapply(plist.chr, function(x) match(x$marker.name, mm$marker))
-       # mapping cross marker to joint marker table name 
-       mucpos = mapply(function(m, p) { p$marker.name[ match(mm$marker[m], p$marker.name)] }, m=mupos, p=plist.chr )
-       peakList=list()
-       presid=seg.chr.phenos.scaled
-       upos=mm$marker
-
-      
-       big.mat=matrix(0, sum(sapply(seg.chr.phenos.scaled,nrow)), nrow(mm))
-       rownames(big.mat)=as.vector(unlist((sapply(seg.chr.phenos.scaled,rownames))))
-       colnames(big.mat)=mm$marker
-       for(cc in names(seg.chr.genos.scaled)) {
-                 x=(seg.chr.genos[[cc]]*2)-1
-                 big.mat[rownames(x), colnames(x)]=x
-            }
-        bmr.scaled=apply(big.mat,2, function(x) {
-                goodx=x!=0
-                y=x[goodx]
-                y=scale(y)
-                x[goodx]=y
-                return(x)
-                })
-        bm2=big.mat
-        bm2[bm2==0]=NA
-
-       traits=colnames(seg.chr.phenos.scaled[[1]])
-       jL.list=list()
-
-       nczero=apply(bmr.scaled,2, function(x) sum(x!=0))
-       
-       for(trait in 1:length(traits)) {
-      
-       print(traits[trait])
-       f.found=c()
-       p.found=c()
-       q.found=c()
-       m.found=c()
-       p=do.call('c', lapply(presid, function(x) x[,trait]))
-       crossF=as.factor(rep(names(presid), sapply(presid, nrow)))
-       
-       jL=-log10(fasterR2(nczero,p,bmr.scaled)[1,])
-       #jL2=cor(p, bm2, use='pairwise.complete.obs')[1,]^2
-       mL=max(jL) 
-       mLi=which.max(jL)
-       
-       plot(jL, main=paste(chrom, traits[trait]))
-       step=1
-       abline(v=mLi, col=step)
-       
-       #structured permutations
-       set.seed(5)
-       yp=do.call('rbind', mapply(function(n,y) { replicate(n.perm, {y[sample(n),trait]}) }, n=seg.chr.n, y=presid))
-       tN=t(matrix(rep(nczero, n.perm),length(nczero)))
-       jLp=-log10(fasterR2(tN, yp,bmr.scaled))
-       #jLp=cor(yp,big.mat, use='pairwise.complete.obs')^2
-       jLpm=rowMaxs(jLp, value=T) 
-       #jLp2=cor(yp[,1:10], bm2, use='pairwise.complete.obs')[1,]^2
-
-       pNull=1-ecdf(jLpm)(mL[1])
-       if(pNull==0) {pNull=1/n.perm}
-        
-        repeat{
-           p.temp=c(p.found, pNull)
-           q=-mean(log(1-p.temp))
-           if(q>FDR_thresh) {break;}
-           p.found=c(p.found, pNull)
-           q.found=c(q.found, q)
-           m.found=c(m.found, upos[mLi])
-           f.found=c(f.found, mLi)
-           print(paste('step=', step, 'max index=', upos[mLi],
-                       'peakCrosses=', cross.cnt.per.marker[[names(mLi)]],
-                        '1012 af=', iseq.freqs$maf1012[match(names(mLi), iseq.freqs$marker)],
-                       'max r2=', mL, 'pnull=', pNull, 'fdr=', q))
-           px=lapply(presid,function(x) x[,trait])
-           presid2=mapply(function(p,g){
-                kmarkers=upos[f.found] %in% colnames(g)
-                if(sum(kmarkers>0)) {
-                    return( as.vector(scale(residuals(lm(p~g[,upos[f.found][kmarkers]])))))
-                 }      else {      return(scale(p))              }
-            }, p=px, g=seg.chr.genos.scaled)
-            pr2=do.call('c', presid2)
-
-           jL=-log10(fasterR2(nczero,pr2,bmr.scaled)[1,])
-            
-            mL=max(jL) 
-            mLi=which.max(jL)
-            abline(v=mLi, col=step+1)
-         
-            yp=do.call('rbind', mapply(function(n,y) { replicate(n.perm, {y[sample(n)]}) }, n=seg.chr.n, y=presid2))
-            jLp=-log10(fasterR2(tN,yp ,bmr.scaled))
-            jLpm=rowMaxs(jLp, value=T) 
-            pNull=1-ecdf(jLpm)(mL[1])
-            if(pNull==0) {pNull=1/n.perm}
-            step=step+1
-        }
-       results=data.frame(fscan.markers=m.found, index=f.found, p=p.found, q=q.found, stringsAsFactors=F) 
-         jL.list[[traits[trait]]]=results                         
-      }
-       jointPeaks5[[chrom]]=rbindlist(jL.list, idcol='trait')
-    }
- return(jointPeaks5)
-}
 
 
+# jointly map QTL effects across the entire panel
+# this analysis is only using variants that are biallelic in the 1,011 strain collection from Peter et al. 2018
 # only JS strain variants 
 # fixed effect per joint marker, FDR control for model selection
 mapJointQTLsJS_variants=function(n.perm=1e3, FDR_thresh=.05, parents.list, pheno.resids, seg.recoded, iseq.freqs=NULL, filterJS=T) {

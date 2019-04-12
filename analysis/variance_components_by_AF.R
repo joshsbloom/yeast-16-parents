@@ -1,3 +1,30 @@
+library(regress)
+library(ggplot2)
+library(ggpubr)
+library(data.table)
+
+# calculate joint variance components model (across entire segregant panel, split by allele frequency in the 1,011 yeast isolate panel from Peter et al.)
+
+#helper functions
+source('/data/rrv2/analysis/mapping_fx.R')
+
+# load phenotypes per cross
+load('/data/rrv2/genotyping/RData/extracted_average_phenotypes.RData')
+
+# output from genotyping/code/segregants_hmm.R
+load('/data/rrv2/genotyping/RData/parents.list.RData')
+#pre-processing
+parents.list=lapply(parents.list, function(x) {
+                  z=x;
+                  z$marker.name.n=paste0(z$marker.name, '_', seq(1:nrow(z)))
+                  return(z) })
+
+# output from within-cross mapping, chromosome-level phenotype residuals
+load('/data/rrv2/genotyping/RData/FDR_pheno.resids.RData')
+
+# recoded genotype data (recoded as biallelic, BY reference)
+load('/data/rrv2/genotyping/RData/FDR_seg.recoded.RData')
+
 # collapse phenotypes across the crosses
 pe=do.call('rbind', (pheno_extracted))
 # a factor object describing which segregant belongs to which cross
@@ -115,7 +142,7 @@ load('/data/rrv2/genotyping/RData/joint.VCs.private_vs_nonprivate_16_parents_onl
 
 
 # 7-component variance component analysis for variants partitioned by allele frequencies in Joseph's panel -------------------------
-    load('/data/rrv2/genotyping/RData/iseq.freqs.RData')
+load('/data/rrv2/genotyping/RData/iseq.freqs.RData')
 
     ibins=split(iseq.freqs, iseq.freqs$bins)
     RKHS.af=list()
@@ -184,7 +211,7 @@ load('/data/rrv2/genotyping/RData/joint.VCs.7_JS_allele_frequency_bins.RData')
                                 verbose=T))
     }
     #save(joint.VCs.af2, file='/data/rrv2/genotyping/RData/joint.VCs.2_JS_allele_frequency_bins.RData')
-
+load('/data/rrv2/genotyping/RData/joint.VCs.2_JS_allele_frequency_bins.RData')
 #---------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -355,44 +382,104 @@ aa=ggplot(JCV, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(sta
 ggsave(file='~/Dropbox/Lab Meeting - Presentations/112918/vc_analysis_joint_within_panel.png',width=7,height=5)
 
 
+testj=JCV.af2[JCV.af2$Component!='E',]
+levels(testj$Trait)[7]='YNB_ph8'
+levels(testj$Trait)[9]='YPD_15C'
+levels(testj$Trait)[15]='YNB_ph3'
+levels(testj$Trait)[25]='EtOH_Glu'
+levels(testj$Trait)[35]='YPD_37C'
+levels(testj$Trait)=gsub(';.*','', levels(testj$Trait))
+levels(testj$Trait)=gsub('_', ' ', levels(testj$Trait))
 
-bb=ggplot(JCV.af2, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
-    scale_fill_manual(values =c('white', 'lightgrey', 'lightblue')) +theme_bw()+ylim(0,1)+
+testjs=split(testj, testj$Trait)
+testjs.norm=lapply(testjs, function(x) {
+                       nf=1/sum(x$fraction_of_variance)
+                    y=x
+                    y$fraction_of_variance=y$fraction_of_variance*nf
+                    y$se=y$se*nf
+                    y$ypos=y$ypos*nf
+                    return(y)
+        })
+testj=rbindlist(testjs.norm)
+xxn=testj[testj$Component=='Private',]
+testj$Trait=factor(testj$Trait, levels=as.character(xxn$Trait[order(xxn$fraction_of_variance)]))
+#save(testj, file='~/Dropbox/RR/PreviousVersions/testj.RData')
+#save(testj, file='/data/rrv2/genotyping/RData/testj.RData')
+
+
+#b1=ggplot(JCV.af2.private, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
+#    scale_fill_manual(values =c('white', 'lightgrey', 'lightblue')) +theme_bw()+ylim(0,1)+
+#    geom_errorbar(color='grey10', position=position_dodge(width=.5), aes(ymax=ypos+se, ymin=ypos-se, width=0))+
+#    theme(axis.text.x=element_text(angle=70,hjust=1))
+#
+#ggarrange(aa,bb, ncol=1, nrow=2, heights=c(2,2),  labels=c('a','b'))
+#
+#ggarrange(aa,bb,b1, ncol=1, nrow=3, heights=c(2,2,2),  labels=c('a','b','c'))
+#
+#ggarrange(aa,bb,b1, ncol=1, nrow=3, heights=c(2,2,2),  labels=c('a','b','c'))
+#x=JCV.af2[JCV.af2$Component=='Private','fraction_of_variance']
+#y=JCV.af7[JCV.af7$Component=="[0.00000,0.00495)",'fraction_of_variance']+JCV.af7[JCV.af7$Component=="[0.00495,0.01088)",'fraction_of_variance']
+
+JCV.af2.1=JCV.af2
+JCV.af7.1=JCV.af7
+JCV.af7.1$Trait=factor(JCV.af7.1$Trait, levels=as.character(xx$Trait[order(xx$fraction_of_variance)]))
+JCV.af.private7.1=JCV.af.private7
+JCV.af.private7.1$Trait=factor(JCV.af.private7.1$Trait, levels=as.character(xx$Trait[order(xx$fraction_of_variance)]))
+
+relevelTrait=function(tr) {
+    levels(tr)[7]='YNB_ph8'
+    levels(tr)[9]='YPD_15C'
+    levels(tr)[15]='YNB_ph3'
+    levels(tr)[25]='EtOH_Glu'
+    levels(tr)[35]='YPD_37C'
+    levels(tr)=gsub(';.*','', levels(tr))
+    levels(tr)=gsub('_', ' ', levels(tr))
+    return(tr)
+}
+JCV.af2.1$Trait=relevelTrait(JCV.af2.1$Trait)
+JCV.af7.1$Trait=relevelTrait(JCV.af7.1$Trait)
+JCV.af.private7.1$Trait=relevelTrait(JCV.af.private7.1$Trait)
+# Supplementary Table 4 ----------------------------------------------------------------------------------------------------------------------------
+WriteXLS(c('JCV.af2.1', 'JCV.af7.1', 'JCV.af.private7.1'),
+         "/home/jbloom/Dropbox/RR/Figures and Tables/SupplementaryTable4.xls", SheetNames=c('2 components', '7 components', '7 components private'))
+# --------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+# Supplementary Figure 3 --------------------------------------------------------------------------------------------------------------------------
+# without normalizing to estimate of additive heritability
+bb=ggplot(JCV.af2.1, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
+   ylim(0,1)+
+    scale_fill_manual(name ="Allele Frequency", values =(c('white', 'lightgrey', 'lightblue')), labels=c('','>= 0.01', '< 0.01')) +
     geom_errorbar(color='grey10', position=position_dodge(width=.5), aes(ymax=ypos+se, ymin=ypos-se, width=0))+
+    ylab('Fraction of phenotypic variance')+
+     theme_bw()+
     theme(axis.text.x=element_text(angle=70,hjust=1))
-ggsave(file='~/Dropbox/Lab Meeting - Presentations/112918/vc_analysis_joint.png',width=7,height=5)
-
-b1=ggplot(JCV.af2.private, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
-    scale_fill_manual(values =c('white', 'lightgrey', 'lightblue')) +theme_bw()+ylim(0,1)+
-    geom_errorbar(color='grey10', position=position_dodge(width=.5), aes(ymax=ypos+se, ymin=ypos-se, width=0))+
-    theme(axis.text.x=element_text(angle=70,hjust=1))
-
-ggarrange(aa,bb, ncol=1, nrow=2, heights=c(2,2),  labels=c('a','b'))
-
-ggarrange(aa,bb,b1, ncol=1, nrow=3, heights=c(2,2,2),  labels=c('a','b','c'))
-
-ggarrange(aa,bb,b1, ncol=1, nrow=3, heights=c(2,2,2),  labels=c('a','b','c'))
-x=JCV.af2[JCV.af2$Component=='Private','fraction_of_variance']
-y=JCV.af7[JCV.af7$Component=="[0.00000,0.00495)",'fraction_of_variance']+JCV.af7[JCV.af7$Component=="[0.00495,0.01088)",'fraction_of_variance']
-
-
-
 # Visualize results from 7-component variance component analysis for variants partitioned by JS allele frequencies --------------
-cc=ggplot(JCV.af7, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
+cc=ggplot(JCV.af7.1, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
     theme_bw()+ylim(0,1)+
     geom_errorbar(color='grey10', position=position_dodge(width=.5), aes(ymax=ypos+se, ymin=ypos-se, width=0))+
-    theme(axis.text.x=element_text(angle=70,hjust=1))+ scale_fill_manual(name = "allele frequency", values=tim.colors(7))+
-    ggtitle('split by 1012 genomes allele frequencies')
-
+    ylab('Fraction of phenotypic variance')+
+    theme(axis.text.x=element_text(angle=70,hjust=1))+ scale_fill_manual(name = "Allele frequency", values=tim.colors(7))
+    #ggtitle('Allele-frequency bins variance component analysis')
 # Visualize results from 7-component variance component analysis for variants partitioned by JS allele frequencies, private RR variants only --------------
-dd=ggplot(JCV.af.private7, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
+dd=ggplot(JCV.af.private7.1, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
     theme_bw()+ylim(0,1)+
+    ylab('Fraction of phenotypic variance')+
     geom_errorbar(color='grey10', position=position_dodge(width=.5), aes(ymax=ypos+se, ymin=ypos-se, width=0))+
-    theme(axis.text.x=element_text(angle=70,hjust=1))+ scale_fill_manual(name = "allele frequency", values=tim.colors(7))+
-    ggtitle('split by 1012 genomes allele frequencies - only private variants')
-ggarrange(cc,dd, ncol=1, nrow=2, heights=c(2,2),  labels=c('a','b'))
+    theme(axis.text.x=element_text(angle=70,hjust=1))+ scale_fill_manual(name = "Allele frequency", values=tim.colors(7))
+    #ggtitle('Allele-frequency bins variance component analysis (private variants in mapping panel only)')
+ggarrange(bb, cc,dd, ncol=1, nrow=3, heights=c(2,2,2),  labels=c('A','B', 'C'))
+ggsave(file='/home/jbloom/Dropbox/RR/Figures and Tables/SupplementaryFigure3.png',width=8.5,height=13)
+
+#--------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+
+
+
+
+plot(JCV.af2$fraction_of_variance[JCV.af2$Component=='Private'], JCV.af7$fraction_of_variance[JCV.af7$Component=="[0.00000,0.00495)"]+JCV.af7$fraction_of_variance[JCV.af7$Component=="[0.00495,0.01088)"], xlim=c(0,1), ylim=c(0,1))
+    abline(0,1)
 c1=ggplot(iseq.freqs, aes(x=maf1012,fill=iseq.freqs$bins))+geom_histogram(binwidth=.001)+scale_fill_manual(name='allele frequency', values=rev(tim.colors(7)))+
     xlab('minor allele frequency of rr16 variants in 1012 yeast panel')+ggtitle('allele frequencies of rr16 variants in yeast panel')+theme_bw()+guides(fill=FALSE)
 js.afs=fread('/data/rrv2/1002genomes/all.freq.frq')

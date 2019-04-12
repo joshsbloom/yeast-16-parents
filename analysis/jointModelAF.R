@@ -6,37 +6,34 @@ library(dplyr)
 library(ggpubr)
 library(ggbeeswarm)
 library(ggsci)
+library(caret)
+
+# load extracted phenotypes (pheno_extracted)
+load('/data/rrv2/genotyping/RData/extracted_average_phenotypes.RData')
+
+# load recoded genotype data
+# use recoded genotypes such that direction of effect is - if reference allele increases, + if alternate allele increases
+load('/data/rrv2/genotyping/RData/FDR_seg.recoded.RData')
+
+# output from genotyping/code/segregants_hmm.R
+load('/data/rrv2/genotyping/RData/parents.list.RData')
+parents.list=lapply(parents.list, function(x) {
+                  z=x;
+                  z$marker.name.n=paste0(z$marker.name, '_', seq(1:nrow(z)))
+                  return(z) })
+
+# load allele-frequency lookup table 
+load('/data/rrv2/genotyping/RData/iseq.freqs.RData')
+
+
+# additional helper functions
+source('/data/rrv2/genotyping/code/segregants_hmm_fx.R')
+source('/data/rrv2/analysis/mapping_fx.R')
 
 load('/data/rrv2/genotyping/RData/joint.cross.cnt.RData')
 cross.count.lookup=stack(joint.cross.cnt)
-#list by trait then cross
-# use recoded genotypes such that direction of effect is - if reference allele increases, + if alternate allele increases
 
-# removed from loop below
-    # cross=cross.list[[cross.name]]
-    #if(cross.name=='A') {       cross=subset(cross, ind=!grepl('A11', as.character(cross$pheno$id)))    }
-    #snames = as.character(cross$pheno$id)
-    ## use genotypes coded as reference vs non-reference 
-
-    #g=pull.argmaxgeno(cross)
-    # recode based on parental genotypes 
-    #seg.pcode=recode.as.allele.number(t(g),parents.list[[cross.name]])
-    #seg.recoded[[cross.name]]=seg.pcode
-   
-    # recode effects as BY =reference
-    # are there fixed loci ?? (no)-------------------------------
-    #g.af=apply(g,2,function(x) sum(x==1))
-    #parents.list[[cross.name]]$fixed=(g.af==0 | g.af==nrow(g))
-    #fixed.loci=which(parents.list[[cross.name]]$fixed)
-    #if(length(fixed.loci)>0) {    g=g[,-fixed.loci] }
-    #------------------------------------------------------------
-    #g.r=g[,-which(duplicated(g, MARGIN=2))]
-#    subPheno=lapply(NORMpheno, function(x) x[match(snames, names(x))])
-#    mPheno  =sapply(subPheno, function(x) sapply(x, mean, na.rm=T))
-#    mPheno=apply(mPheno,2, function(x) {x[is.na(x)]=mean(x, na.rm=T); return(x)})
-#    mPhenos=scale(mPheno)
-
-
+# estimate joint QTL effects within each cross 
 jointPeakEffects=list()
 for(cross.name in crosses) {
     print(cross.name)
@@ -131,284 +128,230 @@ for(i in 1:nrow(QTGsorted.resolved)){
     r2MeanEffect$geneResolved.localFDR[which(r2MeanEffect==ut & r2MeanEffect$peaks %in% um)]=ufdr
 }
 
+# Supplementary Table 3 ------------------------------------------------------------------------------------------
+suptable3a=data.frame(r2MeanEffect)
+suptable3b=data.frame(r2)
+suptable3c=data.frame(cross.peaks.flat)
+WriteXLS(c('suptable3a', 'suptable3b', 'suptable3c'), 
+         "/home/jbloom/Dropbox/RR/Figures and Tables/SupplementaryTable3.xls", SheetNames=c('joint model (avg)',
+                                                                                            'joint model (ind)',
+                                                                                            'within-cross model' 
+                                                                                            ))
+#-----------------------------------------------------------------------------------------------------------------
+
+
+
+############ some specific stats mentioned in the text -------------------------###################################
+
+# number of QTL with effect less than 0.1 SD
+sum(abs(r2MeanEffect$MeanAbsBeta)<.1)
+# 2911 / 4552  = 64%
+
+# number of QTL with lead variant common (MAF>1%)
+sum(r2MeanEffect$maf1012>.01)
+# 3568 / 4552  = 78%
+
+# slice at relatively large effect (sd>.3)
+fisher.test(t(table(abs(r2MeanEffect$MeanAbsBeta)>.3, r2MeanEffect$maf1012>.01)))
+#          <.3   >.3
+#  rare   839    145
+#  common 3478    90
+#
+# odds ratio = 1/.1498 = 6.676
+
+
+# median effect size
+#median(abs(r2MeanEffect$MeanAbsBeta))
+#0.08071
+
+# slicing table of effect size and allele frequency -----------------------------------
+# significant enrichment for variants with maf <1% having large effects
+table(abs(r2MeanEffect$MeanAbsBeta)<.1,  r2MeanEffect$maf1012>.05)
+fisher.test(table(abs(r2MeanEffect$MeanAbsBeta)<.1,  r2MeanEffect$maf1012>.01))
+
+# signficant enrichment of derived allele freq lessthan 1% decreasing fitness 
 fisher.test(sapply(split(sign(r2MeanEffect$MeanAbsBeta), r2MeanEffect$maf2>.01), table))
-#p-value = 3e-05
+
+t(table(abs(r2MeanEffect$MeanAbsBeta)>.3, r2MeanEffect$maf1012>.01))
+# right column is effect greater than 0.3
+# bottom row is common variants
+fisher.test(t(table(abs(r2MeanEffect$MeanAbsBeta)>.3, r2MeanEffect$maf1012>.01)))
+#	Fisher's Exact Test for Count Data
+
+#data:  
+#p-value <2e-16
 #alternative hypothesis: true odds ratio is not equal to 1
 #95 percent confidence interval:
-# 1.198 1.664
-#sample estimates: odds ratio  1.411 
-#sr2=split(r2MeanEffect$MeanAbsBeta, r2MeanEffect$maf1012<.01)
-#t.test(abs(sr2[[1]]),abs(sr2[[2]]))
+# 0.1126 0.1985
+#sample estimates:
+#odds ratio 
+#    0.1498 
+# enrichment is 1/.1498 = 6.676
+# ----------------------------------------------------------------------------------------
+
+# slicing ancestral allele analysis ------------------------------------------------------
+ancestral.eff=(r2MeanEffect$MeanAbsBeta)[r2MeanEffect$maf2>.95]
+derived.eff=(r2MeanEffect$MeanAbsBeta)[r2MeanEffect$maf2<.05]
+
+# compare derived vs ancestral for effects greater than 0.1 SD
+fisher.test(rbind(table(abs(derived.eff)>.1),
+      table(abs(ancestral.eff)>.1)))
+#data:  
+#p-value = 9e-05
+#alternative hypothesis: true odds ratio is not equal to 1
+#95 percent confidence interval:
+# 0.4201 0.7590
+#sample estimates:
+#odds ratio 
+#    0.5658 
+# 1/0.5658 =  1.767
+
+# compare sign of ancestral vs derived 
+fisher.test(rbind(table(sign(derived.eff)),
+      table(sign(ancestral.eff))))
+
+#data:  rbind(table(sign(derived.eff)), table(sign(ancestral.eff)))
+#p-value = 0.008
+#alternative hypothesis: true odds ratio is not equal to 1
+#95 percent confidence interval:
+# 1.095 1.955
+#sample estimates:
+#odds ratio 
+#     1.462 
+
+#-----------------------------------------------------------------------------------------
+
+#####################################################################################################################
 
 
-#r2MeanEffectBig=r2MeanEffect[abs(r2MeanEffect$MeanAbsBeta)>.1,]
-#fisher.test(sapply(split(sign(r2MeanEffectBig$MeanAbsBeta), r2MeanEffectBig$maf2>.01), table))
-ggplot(r2MeanEffect, aes(x=maf1012>.01,y=abs(MeanAbsBeta)))+
-    geom_violin(width=1.3)+
-    geom_quasirandom(alpha = .5, width = 0.5)
 
-    #geom_jitter(position='jitter',alpha=.3, size=1)+
+# Figure 3 -------------------------------------------------------------------------------------------------------
+# needs R 3.5 for ggplot stat_summary_bin breaks parameter to function properly
+#load('E:/Dropbox/RR/PreviousVersions/testj.RData')
 
-#x11()
-#plot(r2MeanEffect$maf2, r2MeanEffect$MeanAbsBeta, xlab='ancestral allele frequency', ylab='beta', col='#00000066')
-
-# plots 
-# unfolded allele frequency spectrum
-uaf=ggplot(r2MeanEffect)+geom_point(alpha=.5, size=1, aes(x=maf2,y=MeanAbsBeta))+
-     #scale_color_viridis()+
-    scale_x_continuous(name='unfolded allele frequency spectrum (derived allele frequency)', breaks=seq(0,1,.05), expand=c(0.01,0)) +
-    scale_y_continuous(name='average absolute effect, SD units', limits=c(-1,1), breaks=seq(-1,1,.1), expand=c(0,0))+theme_bw()
-#ggsave('/home/jbloom/Dropbox/Lab Meeting - Presentations/090518/unfolded_spectrum.png', width=11,height=8)
-ggsave('/home/jbloom/Dropbox/Lab Meeting - Presentations/112918/unfolded_spectrum.png', width=7,height=5)
-
-ggplot(r2MeanEffect)+geom_point(size=.5, aes(x=maf1012,y=abs(MeanAbsBeta),color=density))+
-    scale_color_viridis(option = "inferno", direction=1,end=1)+
-    scale_x_continuous(name='folded allele frequency spectrum (minor allele frequency)', breaks=seq(0,1,.05), expand=c(0.01,0)) +
-    scale_y_continuous(name='average absolute effect, SD units', limits=c(0,1), breaks=seq(0,1,.1), expand=c(0,0))+theme_bw()+
-    theme(panel.grid.major = element_line(colour = "#80808022"))+
-    theme(panel.grid.minor = element_line(colour = "#80808022")) 
-
-ggsave('/home/jbloom/Dropbox/Lab Meeting - Presentations/112918/folded_spectrum.png', width=7,height=5)
-#rre=sapply(seq(0.1,.9,.1), function(x)
-#      table(r2MeanEffect$maf1012>.01, abs(r2MeanEffect$MeanAbsBeta)>x))
-#rownames(rre)=c('maf<.01_eff<T', 'maf<.01_eff>T', 'maf>.01_eff<T', 'maf<.01_eff>T')
-#barplot(rre, beside=T, legend=rownames(rre), names.arg=seq(0.1,.9,.1), xlab='T')
-#ggarrange(af,uaf,ncol=1, nrow=2, labels=c('a','b') )
-
-
-r2MeanEffect$absBeta=abs(r2MeanEffect$MeanAbsBeta)
-rre=(sapply(seq(0.1,.4,.1), function(x)
-      table(r2MeanEffect$maf1012>.01, r2MeanEffect$absBeta>x)))
-rownames(rre)=c('rare_small', 'common_small', 'rare_large', 'common_large')
-#barplot(rre, beside=T, legend=rownames(rre), names.arg=seq(0.1,.4,.1), xlab='T')
-rre2=rre[c(1,3,2,4),]
-par(mfrow=c(2,1))
-barplot(rre2, beside=T, legend=rownames(rre2), names.arg=paste('>' ,seq(0.1,.4,.1)), xlab='effect size threshold', ylab='count', main='rare is maf<.01')
-
-nf1=colSums(rre2[1:2,])
-nf2=colSums(rre2[3:4,])
-rre3=rbind(t(t(rre2[1:2,])/nf1), t(t(rre2[3:4,])/nf2))
-barplot(rre3, beside=T, legend=rownames(rre3), names.arg=paste('>' ,seq(0.1,.4,.1)), xlab='effect size threshold', ylab='proportion')
-
-# normalize bars total count for rare and for common ...and then two bars ... 
+# from variance_components_by_AF.R
+load('/data/rrv2/genotyping/RData/testj.RData')
+# r2MeanEffect is defined above
+#load('E:/Dropbox/RR/PreviousVersions/r2MeanEffect.RData')
+library(ggpubr)
 library(Hmisc)
-test=cut2(r2MeanEffect$maf1012, g=7)
-test=cut(r2MeanEffect$maf1012, b=20)
-
-par(mfrow=c(4,1))
-barplot(table(r2MeanEffect$absBeta>.1, test),main=' effect > .05',legend=c('less than', 'greater than'), xlab='maf bin')
-barplot(table(r2MeanEffect$absBeta>.1, test),main='effect > .1',legend=c('less than', 'greater than'), xlab='maf bin')
-barplot(table(r2MeanEffect$absBeta>.2, test),main='effect > .2',legend=c('less than', 'greater than'), xlab='maf bin')
-barplot(table(r2MeanEffect$absBeta>.3, test),main='effect > .3',legend=c('less than', 'greater than'), xlab='maf bin')
-
-R>  table(r2MeanEffect$absBeta>.1, r2MeanEffect$maf1012>.01)
- ###                effect
-#                <.1 >.1
-#              FALSE TRUE
-#AF<.01  FALSE   388 2523
-#AF>.01  TRUE    596 1045
-sum(r2MeanEffect$maf1012<.01 & r2MeanEffect$absBeta<.1)
-#[1] 388
-sum(r2MeanEffect$maf1012<.01 & r2MeanEffect$absBeta>.1)
-#[1] 596
-sum(r2MeanEffect$maf1012>.01 & r2MeanEffect$absBeta>.1)
-#[1] 1045
-sum(r2MeanEffect$maf1012>.01 & r2MeanEffect$absBeta<.1)
-#[1] 2523
-
-sum(r2MeanEffect$maf1012<.05 & r2MeanEffect$absBeta<.1)
-#[1] 388
-sum(r2MeanEffect$maf1012<.05 & r2MeanEffect$absBeta>.1)
-#[1] 596
-sum(r2MeanEffect$maf1012>.05 & r2MeanEffect$absBeta>.1)
-#[1] 1045
-sum(r2MeanEffect$maf1012>.05 & r2MeanEffect$absBeta<.1)
-
-
-ggplot(r2MeanEffect, aes(x=(maf2), y=MeanAbsBeta))+geom_point(alpha=.3, size=.75)+facet_wrap(~trait)+
-       scale_x_continuous(name='unfolded allele frequency spectrum (derived allele frequency)', breaks=seq(0,1,.05), expand=c(0.01,0)) +
-       scale_y_continuous(name='average absolute effect, SD units', limits=c(-1,1), breaks=seq(-1,1,.1), expand=c(0,0))
-
-    scale_x_continuous(name='peak marker minor allele frequency from 1012 yeast panel', breaks=seq(0,.5,.1)) +
-    scale_y_continuous(name='average absolute effect, SD units', limits=c(0,1), breaks=seq(0,1,.1))+
-    geom_smooth(method='lm', formula=y~x, size=.25)+theme_bw()
-test=cbind(ifelse(r2MeanEffect$maf2>.01, 'daf >.01', 'daf<.01'), sign(r2MeanEffect$MeanAbsBeta))
-table(data.frame(test))
-
-x=(sapply(split(sign(r2MeanEffect$MeanAbsBeta), cut(r2MeanEffect$maf2, 100)), table))
-#test=cbind(r2MeanEffect$maf2<.05, r2MeanEffect$MeanAbsBeta<0)
-#table(data.frame(test))
-#              -   +
-#   af<.05   1225 1130
-#   af>.05    712  928
-library(viridis)
-ggplot(r2MeanEffect)+geom_jitter(alpha=.6, size=.75, aes(x=crossCount,y=MeanAbsBeta,color=density))+scale_color_viridis()+
-    scale_x_continuous(name='# of crosses a peak marker segregates in', breaks=seq(0,14,2)) +
-    scale_y_continuous(name='average absolute effect, SD units', limits=c(0,1), breaks=seq(0,1,.1))
-
-ggsave('/home/jbloom/Dropbox/Lab Meeting - Presentations/090518/04_jointEffectDist_perCross.png', width=11,height=8)
-
-# all effects per QTL
-nlsfit= nlsfit(data.frame(r2$maf1012,abs(r2$betas)), model=6)
-a <- nlsfit$Parameters[row.names(nlsfit$Parameters) == 'coefficient a',]
-b <- nlsfit$Parameters[row.names(nlsfit$Parameters) == 'coefficient b',]
-ggplot(r2)+geom_point(alpha=.5, size=.75, aes(x=maf1012,y=abs(betas),color=density))+scale_color_viridis()+
-    scale_x_continuous(name='peak marker minor allele frequency from 1012 yeast panel', breaks=seq(0,.5,.05)) +
-    scale_y_continuous(name='average absolute effect, SD units', breaks=seq(0,1,.1))+
-    stat_function(fun=function(x) a*exp(b*x), colour = "red")+
-     stat_smooth(method='lm', aes(x=maf1012,y=abs(betas)), formula=y~x)
-ggsave('/home/jbloom/Dropbox/Lab Meeting - Presentations/090518/04_jointEffectDist.png', width=11,height=8)
-
-# mean effect per QTL
-nlsfit= nlsfit(data.frame(r2MeanEffect$maf1012,r2MeanEffect$MeanAbsBeta), model=6)
-a <- nlsfit$Parameters[row.names(nlsfit$Parameters) == 'coefficient a',]
-b <- nlsfit$Parameters[row.names(nlsfit$Parameters) == 'coefficient b',]
-ggplot(r2MeanEffect)+geom_point(alpha=.4, size=1, aes(x=maf1012,y=MeanAbsBeta,color=density))+#scale_color_viridis()+
-    scale_x_continuous(name='peak marker minor allele frequency from 1012 yeast panel', breaks=seq(0,.5,.05)) +
-    scale_y_continuous(name='average absolute effect, SD units', limits=c(0,1), breaks=seq(0,1,.1))
-    #stat_function(fun=function(x) a*exp(b*x), colour = "red")+
-    #stat_smooth(method='lm', aes(x=maf1012,y=MeanAbsBeta), formula=y~x)
-ggsave('/home/jbloom/Dropbox/Lab Meeting - Presentations/090518/04_jointEffectDistQTLMean.png', width=11,height=8)
-
-
-ggplot(r2MeanEffect, aes(x=(maf1012), y=MeanAbsBeta))+geom_point(alpha=.3, size=.75)+facet_wrap(~trait)+
-    scale_x_continuous(name='peak marker minor allele frequency from 1012 yeast panel', breaks=seq(0,.5,.1)) +
-    scale_y_continuous(name='average absolute effect, SD units', limits=c(0,1), breaks=seq(0,1,.1))+
-    geom_smooth(method='lm', formula=y~x, size=.25)+theme_bw()
-ggsave('/home/jbloom/Dropbox/Lab Meeting - Presentations/090518/04_perTraitQTLMean.png', width=11,height=11)
-
-
-
-ggplot(r2MeanEffect, aes(x=(maf1012), y=MeanAbsBeta))+geom_point(alpha=.5, size=.75)+facet_wrap(~trait)+
-    scale_x_log10(name='peak marker minor allele frequency from 1012 yeast panel', limits=c(.001,.75), breaks=c(0,0.001,0.01,0.25)) +
-    scale_y_log10(name='average absolute effect, SD units', limits=c(.01,1))+geom_smooth(method='lm', formula=y~x, size=.25)+theme_bw()
-ggsave('/home/jbloom/Dropbox/Lab Meeting - Presentations/090518/04_perTraitQTLMeanLOG10.png', width=11,height=11)
-
-
-
-
-    #stat_function(fun=function(x) a*exp(b*x), colour = "red")+
-    #stat_smooth(method='lm', aes(x=maf1012,y=MeanAbsBeta), formula=y~x)
-
-
-
-
-ggplot(r2, aes(x=(maf1012), y=abs(betas)))+geom_point(alpha=.15, size=.75)+facet_wrap(~trait)+
-    scale_x_continuous(name='minor allele frequency from 1012 yeast panel', limits=c(.001,.75)) +
-    scale_y_continuous(name='absolute effect, SD units', limits=c(.0001,1))+geom_smooth(method='lm', formula=y~x)
-
-
-df2=r2MeanEffect
-mclustBIC(cbind(df2$MeanAbsBeta, df2$maf1012Fill))
-test=mclustBIC(cbind(df2$MeanAbsBeta, df2$maf1012Fill))
-
-#spikeAndSlab(df$MeanAbsBeta, r2MeanEffect$maf1012Fill)
-ggplot(r2MeanEffect, aes(x=(maf1012), y=r2MeanEffect$MeanAbsBeta))+geom_point(alpha=.7, size=1)+facet_wrap(~trait)+
-    scale_x_continuous(name='minor allele frequency from 1012 yeast panel', limits=c(.001,.5)) +
-    scale_y_continuous(name='absolute effect, SD units', limits=c(.0001,1))+geom_smooth(method='lm', formula=y~x)
-
-
-
-
-
-
-nlsfit= nlsfit(data.frame(r2$maf1012Fill,abs(r2$betas)), model=6)
-a <- nlsfit$Parameters[row.names(nlsfit$Parameters) == 'coefficient a',]
-b <- nlsfit$Parameters[row.names(nlsfit$Parameters) == 'coefficient b',]
-
-ggplot(r2)+geom_point(alpha=.15, size=.75, aes(x=maf1012Fill,y=abs(betas),color=densityF))+scale_color_viridis()+
-    scale_x_continuous(name='minor allele frequency from 1012 yeast panel') +
-    scale_y_continuous(name='absolute effect, SD units')+
-    stat_function(fun=function(x) a*exp(b*x), colour = "red")
-
-ggplot(r2)+geom_point(alpha=.15, size=.75, aes(x=maf1012Fill,y=abs(betas),color=densityF))+scale_color_viridis()+
-    scale_x_continuous(name='minor allele frequency from 1012 yeast panel') +
-    scale_y_continuous(name='absolute effect, SD units')+
-    stat_function(fun=function(x) a*exp(b*x), colour = "red")
-
-
-
-
-
-
-
-
-ggplot(r2, aes(x=(maf1012), y=abs(betas), color=cross))+geom_point(alpha=.25, size=.75)+facet_wrap(~trait)
-ggplot(r2, aes(x=(maf1012), y=abs(betas)))+geom_point(alpha=.15, size=.75)+facet_wrap(~trait)+
-    scale_x_log10(name='minor allele frequency from 1012 yeast panel', limits=c(.001,.5)) +
-    scale_y_log10(name='absolute effect, SD units', limits=c(.0001,1))+geom_smooth(method='lm', formula=y~x)
-
-ggplot(r2, aes(x=(maf1012Fill), y=abs(betas)))+geom_point(alpha=.15, size=.75)+
-    scale_x_log10(name='minor allele frequency from 1012 yeast panel', limits=c(.001,.5)) +
-    scale_y_log10(name='absolute effect, SD units', limits=c(.0001,1))+geom_smooth(method='lm', formula=y~x)
-
-library(MASS)
 library(ggplot2)
-library(viridis)
-theme_set(theme_bw(base_size = 16))
 
-# Get density of points in 2 dimensions.
-# @param x A numeric vector.
-# @param y A numeric vector.
-# @param n Create a square n by n grid to compute density.
-# @return The density within each square.
+Fig3A=ggplot(testj, aes(x=Trait,y=fraction_of_variance, fill=Component))+geom_bar(stat="identity")+
+    ylab(expression(Fraction~of~heritability~(h^2)))+
+    scale_fill_manual(guide=F, values =c('lightgrey', 'lightblue'), labels=c( '> 0.01', '< 0.01')) +
+    #guides(fill=guide_legend("minor allele frequency\n in 1,011 panel"))+ 
+    scale_y_continuous(expand=c(0,0))+
+    theme_bw()+
+    geom_errorbar(color='grey10', position=position_dodge(width=.5), aes(ymax=ypos+se, ymin=ypos-se, width=0))+
+    theme(axis.text.x=element_text(size=rel(1),color='#000000CC', angle=70,hjust=1),
+          axis.text.y=element_text(size=rel(1),color='black'))
+Fig3Blank=ggplot(r2MeanEffect)+geom_blank()+theme_classic()
+
+Fig3B=ggplot(r2MeanEffect)+geom_point(alpha=.4, size=.75, aes(x=maf1012,y=abs(MeanAbsBeta)))+ #,color=density))+
+    #scale_color_viridis(option = "inferno", direction=1,end=1)+
+    scale_x_continuous(name='Minor allele frequency', breaks=seq(0,1,.05), expand=c(0.01,0)) +
+    scale_y_continuous(name='Average absolute effect, SD units', limits=c(0,1), breaks=seq(0,1,.1), expand=c(0,0))+theme_bw()+
+    theme(panel.grid.major = element_line(colour = "#80808022"))+
+    theme(panel.grid.minor = element_line(colour = "#80808022"))+
+    theme(axis.text.x=element_text(size=rel(1),color='black'),
+          axis.text.y=element_text(size=rel(1),color='black'))+
+    stat_summary_bin(aes(x=maf1012,y=abs(MeanAbsBeta)), breaks=cut2(r2MeanEffect$maf1012,g=42, onlycuts=T),  col='red')
+
+Fig3C=ggplot(r2MeanEffect)+geom_point(alpha=.4, size=.75, aes(x=maf2,y=MeanAbsBeta))+
+     #scale_color_viridis()+
+    scale_x_continuous(name='Derived allele frequency', breaks=seq(0,1,.1), expand=c(0.01,0)) +
+    scale_y_continuous(name='Average effect, SD units', limits=c(-1,1), breaks=seq(-1,1,.1), expand=c(0,0))+theme_bw()
+ggarrange(Fig3A,Fig3Blank,Fig3B, Fig3C, ncol=2, nrow=2, labels=c('A','','B', 'C'))
+ggsave(file='E:/Dropbox/RR/Figures and Tables/Figure3.png',width=11,height=11)
+#------------------------------------------------------------------------------------------------------------------
 
 
-    stat_smooth(method='lm', formula=log(y)~x)
 
 
-+facet_wrap(~trait)
+# Supplementary Figure 6  --------------------------------------------------------------------------------
+sr2=r2MeanEffect
+#sr2$ve=4*r2MeanEffect$maf1012*(1-r2MeanEffect$maf1012)*r2MeanEffect$MeanAbsBeta^2
+#sr2$ve=abs(r2MeanEffect$MeanAbsBeta)
+sr2$ve=4*(r2MeanEffect$crossCount/32)*(1-(r2MeanEffect$crossCount/32))*r2MeanEffect$MeanAbsBeta^2
 
-#r=rbindlist(jointPeakEffects[[35]])
+sr2=split(sr2, sr2$trait)
+names(sr2)=as.character(levels(WCV$Trait))
+pdf('/home/jbloom/Dropbox/RR/Figures and Tables/SupplementaryFigure6.pdf', width=15, height=20) 
+par(mfrow=c(7,6))
+for(i in 1:38) {
+sr21=sr2[[i]]
+sr21=sr21[order(sr21$maf1012, decreasing=F),]
+sr21$cve=cumsum(sr21$ve)/sum(sr21$ve)
+plot(sr21$maf1012, sr21$cve, main=names(sr2[i]), ylab='cummulative GVE', 
+     xlab='MAF', xlim=c(0,.5), ylim=c(0,1), type='l', lwd=2)
+#plot(density(log10(sr21$maf1012),sr21$ve, n=3))
+abline(0,2, lty=2, col='grey')
+#readline()
+}
+dev.off()
+# --------------------------------------------------------------------------------------------------------
 
-par(mfrow=c(3,1))
-plot(jitter(test), abs(r2$betas), col='#00000022',cex=.75, xlab='# of crosses a variant is segregating in', ylab='sd units')
-#r2$maf1012[is.na(r2$maf1012)]=0
-plot(r2$maf1012, abs(r2$betas), col='#00000044',cex=.75, xlab='maf in 1012 panel', ylab='sd units')
-plot(r2$maf1012, abs(r2$betas), ylim=c(0,0.4), col='#00000044',cex=.75, xlab='maf in 1012 panel', ylab='variance explained')
 
 
-plot(r2$maf1012, abs(r2$vexp)
-
-
-
-
-    cpeaks=cross.peaks[[cross.name]] #[grep('Mang', cross.peaks[[cross.name]]$gene),]
-    cpeaks=separate(cpeaks, pmarker, c('chr', 'pos', 'ref', 'alt', 'index'), sep='_', convert=T, remove=F)
-    cpeaks$marker=parents.list[[cross.name]]$marker.name[match(cpeaks$pmarker, parents.list[[cross.name]]$marker.name.n)]
-    cpeaks.by.trait=split(cpeaks, cpeaks$trait)
-    chromosomes=paste0('chr', as.roman(1:16))
-    cvec=parents.list[[cross.name]]$chr
-    gs.by.chr=list()
-    vac=list()
-    for(cc in chromosomes) {   
-            gs.by.chr[[cc]]=g.s[,which(cvec %in% cc)]   
-            vac[[cc]]=parents.list[[cross.name]][which(cvec %in% cc),]
-    }
-    
-     for(tt in names(cpeaks.by.trait)) {
+# compare QTL effect sizes for within-cross vs joint QTL mapping ----------------------------------
+# specifically, find the QTL from the joint analysis that don't overlap the within-cross analysis 
+# and investigate their effects 
+# for each cross
+jpel=list()
+for(cc in names(cross.peaks)){
+    # for each trait 
+    print(cc)
+     for(tt in unique(cross.peaks[[1]]$trait)[-c(37,38)]) {
          print(tt)
-         fmodel=cpeaks.by.trait[[tt]]
-         bad.markers=duplicated(fmodel$marker)
-         if(sum(bad.markers)>0) {
-             fmodel=fmodel[-which(bad.markers),]
-         }
-         dff=data.frame(g.s[,fmodel$marker])
-         qmodel=lm(mPhenos[,tt]~.-1, data=dff)
-         yr=residuals(qmodel)
-         aov.a = anova(qmodel)
-         tssq  = sum(aov.a[,2])
-         a.effs=(aov.a[1:(nrow(aov.a)-1),2]/tssq)
-         ps=drop1(qmodel, test='F')[-1,6]
-         out=data.frame(
-            trait=tt,
-            fmodel[,c(3:7,13)],
-            sig_covar=fmodel$marker,
-            CI.l=parents.list[[cross.name]]$marker.name[match(fmodel$CI.l, parents.list[[cross.name]]$marker.name.n)],
-            CI.r=parents.list[[cross.name]]$marker.name[match(fmodel$CI.r, parents.list[[cross.name]]$marker.name.n)],
-            betas=as.vector(coef(qmodel)),
-            vexp=a.effs,
-            chr=fmodel$chr,
-            p = ps,
-            bootstrap_interval='', stringsAsFactors=F)
+        cpt=cross.peaks[[cc]][cross.peaks[[cc]]$trait==tt,]
+        jpt=jointPeakEffects[[tt]][[cc]]     
+        if(nrow(cpt)==0) {
+             jpt$overlapQTL=F
+             #jpt$overlapQTL[overlapQ]=T
+            jpel[[tt]][[cc]]=jpt
+        
+        } else {
+        ppos1=tstrsplit(cpt$CI.l, '_', type.convert=T)[[2]]
+        ppos2=tstrsplit(cpt$CI.r, '_', type.convert=T)[[2]]
+        chr1=tstrsplit(cpt$CI.l, '_', type.convert=T)[[1]]
+        chr2=tstrsplit(jpt$peaks ,'_', type.convert=T)[[1]]
+        ppos3=tstrsplit(jpt$peaks, '_', type.convert=T)[[2]]
+
+
+
+        cpti=makeGRangesFromDataFrame(data.frame(chr=chr1, start=ppos1, end=ppos2 ), ignore.strand=T)
+        jpti=makeGRangesFromDataFrame(data.frame(chr=chr2, start=ppos3, end=ppos3 ), ignore.strand=T)
+        overlapQ=unique(queryHits(findOverlaps(jpti, cpti)))
+        jpt$overlapQTL=F
+        jpt$overlapQTL[overlapQ]=T
+        jpel[[tt]][[cc]]=jpt
+        }
+     }
+}
+rjpel=rbindlist(lapply(jpel, rbindlist))
+rjpel=rjpel[!(rjpel$trait %in% c("YPD;;2","YPD;;3")),]
+
+
+rjpel$crossCount=ifelse(rjpel$cross.cnt%%2==1, rjpel$cross.cnt+1, rjpel$cross.cnt)
+#r2$density=get_density(r2$maf1012, abs(r2$betas))
+#r2$densityF=get_density(r2$maf1012Fill, abs(r2$betas))
+rjpel$absBeta=abs(rjpel$betas)
+rjpel$ancestral=iseq.freqs$ancestral[match(rjpel$peaks, iseq.freqs$marker)]
+rjpel$maf2=ifelse(rjpel$ancestral, rjpel$alt012, 1-rjpel$alt012)
+
+# 0 = reference derived, alternate paradoxus (ancestral)
+# 1 = reference paradoxus (ancestral), alternate cerevisiae
+
+#r2MeanEffect=r2 %>% group_by_(.dots=c("trait","peaks")) %>% mutate(MeanAbsBeta=mean(absBeta)) %>% distinct(traits,peaks,maf1012,crossCount, MeanAbsBeta, ancestral, maf2)
+rjMeanEffect=rjpel %>% group_by_(.dots=c("trait","peaks")) %>% mutate(MeanAbsBeta=mean(betas)) %>% distinct(trait,peaks,maf1012,crossCount, MeanAbsBeta, ancestral, maf2)
+rjq=split(rjpel, paste(rjpel$trait,rjpel$peaks))
+sapply(rjq, function(x) sum(x$overlapQTL)>0)
+
+rjq[names(which(sapply(rjq, function(x) sum(x$overlapQTL)==0)))]
+wilcox.test(sapply(rjq[names(which(sapply(rjq, function(x) sum(x$overlapQTL)>0)))], function(x) mean(abs(x$betas))),
+            sapply(rjq[names(which(sapply(rjq, function(x) sum(x$overlapQTL)==0)))], function(x) mean(abs(x$betas))))
+#W = 1e+06, p-value = 9e-05
+#median=.08259 vs median 0.0711 
+#------------------------------------------------------------------------------------------------------
 
