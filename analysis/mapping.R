@@ -44,6 +44,7 @@ source('/data/rrv2/analysis/mapping_fx.R')
 
 # cross.peaks=list()
 # pheno.resids=list()
+# seg.parental.coding=list()
 # seg.recoded=list()
 # cross.validated.r2=list()
 # h2.vc.model=list()
@@ -73,8 +74,12 @@ for(cross.name in crosses) {
     if(length(fixed.loci)>0) {    g=g[,-fixed.loci] }
     #------------------------------------------------------------
     
+    seg.parental.coding[[cross.name]]=g
+    #write.table(g, file=paste0('/data/rrv2/data/genotype_', cross.name,'.tsv'), row.names=T, col.names=NA, sep='\t',quote=F)
+
     # reduce the set of markers by pruning markers in complete LD
     g.r=g[,-which(duplicated(g, MARGIN=2))]
+
     # scale genotypes 
     g.s=scale(g.r)
     gall.s=scale(g)
@@ -115,6 +120,8 @@ for(cross.name in crosses) {
     pheno.resids[[cross.name]]=chromResids
 }
 #save(pheno_extracted, file='/data/rrv2/genotyping/RData/extracted_average_phenotypes.RData')
+write.table(do.call('rbind', pheno_extracted), file='/data/rrv2/data/phenotypes.tsv', sep='\t',quote=F,row.names=T)
+
 #save(h2.vc.model, file= '/data/rrv2/genotyping/RData/h2_VC_model.RData')
 #save(cross.validated.r2, file = '/data/rrv2/genotyping/RData/FDR_cross_validatedR2.RData')
 #save(cross.peaks, file= '/data/rrv2/genotyping/RData/FDR_cross.peaks.RData')
@@ -169,7 +176,7 @@ load('/data/rrv2/genotyping/RData/iseq.freqs.RData')
 jointPeaksJS=mapJointQTLsJS_variants(n.perm=1e3, FDR_thresh=.05, parents.list, pheno.resids, seg.recoded, iseq.freqs, filterJS=T)
 #save(jointPeaksJS, file='/data/rrv2/genotyping/RData/jointPeaksJS.RData')
 
-### do multi-cross analysis with cross-validation to estimate qtl r^2 -------------------------------------------------------------
+### multi-cross analysis with cross-validation to estimate qtl r^2 -------------------------------------------------------------
 #
 # jointModelCrossValidation.R
 #
@@ -185,21 +192,21 @@ jointPeaksJS=mapJointQTLsJS_variants(n.perm=1e3, FDR_thresh=.05, parents.list, p
 #----------------------------------------------------------------------------------------------------------------------------------
 
 
-### do joint variance component analysis (across the whole panel split by allele frequencies in 1,011 isolate collection ----------
+### joint variance component analysis (across the whole panel split by allele frequencies in 1,011 isolate collection ----------
 #
 # see variance_components_by_AF.R
 #
 #----------------------------------------------------------------------------------------------------------------------------------
 
 
-### do causal gene identification and GO analysis ---------------------------------------------------------------------------------
+### causal gene identification and GO analysis ---------------------------------------------------------------------------------
 # 
 # see QTL_causality.R
 # 
 #----------------------------------------------------------------------------------------------------------------------------------
 
 
-### do simulation analysis to investigate how mapping procedure captures allele-frequency to effect size coupling -----------------
+### simulation analysis to investigate how mapping procedure captures allele-frequency to effect size coupling -----------------
 #
 # see simulateArchitecture.R
 #
