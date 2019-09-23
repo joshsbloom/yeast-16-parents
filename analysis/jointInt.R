@@ -34,45 +34,45 @@ for(cross.name in crosses) {
     jointInteractionPeaks[[cross.name]]=foreach(tt = names(jPs) ) %dopar% {
         print(tt)
         dfi=NULL
-        if(length(jointPeakEffects[[tt]][[cross.name]]$peaks)>1) {
-                apeaks=jointPeakEffects[[tt]][[cross.name]]$peaks
-                qtl.combs=combn(apeaks,2)
-                #null=lm(mPhenos[,tt]~g.s[,apeaks]-1)
-                int.coef1=rep(NA, ncol(qtl.combs))
-                int.coef2=rep(NA, ncol(qtl.combs))
-                int.coef=rep(NA, ncol(qtl.combs))
-                int.pvalue=rep(NA, ncol(qtl.combs))
-                
-                 for(ist in 1:ncol(qtl.combs)){
-                        #print(ist)
-                        full=lm(mPhenos[,tt]~g.s[,apeaks]+g.s[,qtl.combs[1,ist]]*g.s[,qtl.combs[2,ist]])
-                        int.pvalue[ist]=drop1(full, 'g.s[, qtl.combs[1, ist]]:g.s[, qtl.combs[2, ist]]', test='Chisq')[[5]][2]
-                        #anova(null,full)$'Pr(>F)'[2]
-                        coefs=coef(full)
-                        int.coef1[ist]=coefs[paste0("g.s[, apeaks]",qtl.combs[1,ist])]
-                        int.coef2[ist]=coefs[paste0("g.s[, apeaks]",qtl.combs[2,ist])]
-                        int.coef[ist]=coefs[length(coefs)] #anova(null,full)$'Pr(>F)'[2]
-                    }
-                tqc=t(qtl.combs)
-                dfi=data.frame(m1=tqc[,1], m2=tqc[,2], int.coef1, int.coef2, int.coef, int.pvalue, stringsAsFactors=F)
-                dfi$cross=cross.name
-                dfi$trait=tt
-                dfi$chr1=sapply(strsplit(dfi$m1, '_'), function(x) x[1])
-                dfi$pos1=as.numeric(sapply(strsplit(dfi$m1, '_'), function(x) x[2]))
-                dfi$pos1_maf1012=iseq.freqs$maf1012[match(dfi$m1, iseq.freqs$marker)]
-                dfi$pos1_alt012=iseq.freqs[,8][match(dfi$m1, iseq.freqs$marker)]
-                dfi$pos1_ancestral=iseq.freqs$ancestral[match(dfi$m1, iseq.freqs$marker)]
-                dfi$pos1_maf2=ifelse(dfi$pos1_ancestral, dfi$pos1_alt012, 1-dfi$pos1_alt012)
-
-                dfi$chr2=sapply(strsplit(dfi$m2, '_'), function(x) x[1])
-                dfi$pos2=as.numeric(sapply(strsplit(dfi$m2, '_'), function(x) x[2]))
-                dfi$pos2_maf1012=iseq.freqs$maf1012[match(dfi$m2, iseq.freqs$marker)]
-                dfi$pos2_alt012=iseq.freqs[,8][match(dfi$m2, iseq.freqs$marker)]
-                dfi$pos2_ancestral=iseq.freqs$ancestral[match(dfi$m2, iseq.freqs$marker)]
-                dfi$pos2_maf2=ifelse(dfi$pos2_ancestral, dfi$pos2_alt012, 1-dfi$pos2_alt012)
-                #jointInteractionPeaks[[cross.name]][[tt]]=dfi
-                #interactions_per_trait[[pheno]]=dfi
-        }
+#        if(length(jointPeakEffects[[tt]][[cross.name]]$peaks)>1) {
+#                apeaks=jointPeakEffects[[tt]][[cross.name]]$peaks
+#                qtl.combs=combn(apeaks,2)
+#                #null=lm(mPhenos[,tt]~g.s[,apeaks]-1)
+#                int.coef1=rep(NA, ncol(qtl.combs))
+#                int.coef2=rep(NA, ncol(qtl.combs))
+#                int.coef=rep(NA, ncol(qtl.combs))
+#                int.pvalue=rep(NA, ncol(qtl.combs))
+#                
+#                 for(ist in 1:ncol(qtl.combs)){
+#                        #print(ist)
+#                        full=lm(mPhenos[,tt]~g.s[,apeaks]+g.s[,qtl.combs[1,ist]]*g.s[,qtl.combs[2,ist]])
+#                        int.pvalue[ist]=drop1(full, 'g.s[, qtl.combs[1, ist]]:g.s[, qtl.combs[2, ist]]', test='Chisq')[[5]][2]
+#                        #anova(null,full)$'Pr(>F)'[2]
+#                        coefs=coef(full)
+#                        int.coef1[ist]=coefs[paste0("g.s[, apeaks]",qtl.combs[1,ist])]
+#                        int.coef2[ist]=coefs[paste0("g.s[, apeaks]",qtl.combs[2,ist])]
+#                        int.coef[ist]=coefs[length(coefs)] #anova(null,full)$'Pr(>F)'[2]
+#                    }
+#                tqc=t(qtl.combs)
+#                dfi=data.frame(m1=tqc[,1], m2=tqc[,2], int.coef1, int.coef2, int.coef, int.pvalue, stringsAsFactors=F)
+#                dfi$cross=cross.name
+#                dfi$trait=tt
+#                dfi$chr1=sapply(strsplit(dfi$m1, '_'), function(x) x[1])
+#                dfi$pos1=as.numeric(sapply(strsplit(dfi$m1, '_'), function(x) x[2]))
+#                dfi$pos1_maf1012=iseq.freqs$maf1012[match(dfi$m1, iseq.freqs$marker)]
+#                dfi$pos1_alt012=iseq.freqs[,8][match(dfi$m1, iseq.freqs$marker)]
+#                dfi$pos1_ancestral=iseq.freqs$ancestral[match(dfi$m1, iseq.freqs$marker)]
+#                dfi$pos1_maf2=ifelse(dfi$pos1_ancestral, dfi$pos1_alt012, 1-dfi$pos1_alt012)
+#
+#                dfi$chr2=sapply(strsplit(dfi$m2, '_'), function(x) x[1])
+#                dfi$pos2=as.numeric(sapply(strsplit(dfi$m2, '_'), function(x) x[2]))
+#                dfi$pos2_maf1012=iseq.freqs$maf1012[match(dfi$m2, iseq.freqs$marker)]
+#                dfi$pos2_alt012=iseq.freqs[,8][match(dfi$m2, iseq.freqs$marker)]
+#                dfi$pos2_ancestral=iseq.freqs$ancestral[match(dfi$m2, iseq.freqs$marker)]
+#                dfi$pos2_maf2=ifelse(dfi$pos2_ancestral, dfi$pos2_alt012, 1-dfi$pos2_alt012)
+#                #jointInteractionPeaks[[cross.name]][[tt]]=dfi
+#                #interactions_per_trait[[pheno]]=dfi
+#        }
         dfii=NULL
         if(length(jointPeakEffects[[tt]][[cross.name]]$peaks)>2) {
                 apeaks=jointPeakEffects[[tt]][[cross.name]]$peaks
@@ -94,32 +94,43 @@ for(cross.name in crosses) {
 
                 int.pvalue=rep(NA, ncol(qtl.combs))
                 int.coef=rep(NA, ncol(qtl.combs))
+                int.vexp=rep(NA, ncol(qtl.combs))
+                null=lm(mPhenos[,tt]~g.s[,apeaks])
                 for(ist in 1:ncol(qtl.combs)){
                     if(ist==ncol(qtl.combs)) {print(tt)}
                     full=lm(mPhenos[,tt]~g.s[,apeaks]+g.s[,qtl.combs[1,ist]]*g.s[,qtl.combs[2,ist]]*g.s[,qtl.combs[3,ist]])
                     #mm=(model.matrix(mPhenos[,tt]~g.s[,apeaks]+g.s[,qtl.combs[1,ist]]*g.s[,qtl.combs[2,ist]]*g.s[,qtl.combs[3,ist]]))
                     #full=lm.fit(mm, mPhenos[,tt])
+                    int.vexp[ist]=anova(null,full)[2,4]/(nrow(mPhenos)-1)
                     coefs=coef(full)
                     int.pvalue[ist]=drop1(full, 'g.s[, qtl.combs[1, ist]]:g.s[, qtl.combs[2, ist]]:g.s[, qtl.combs[3, ist]]', test='Chisq')[[5]][2]
                     int.coef[ist]=coefs[length(coefs)] #anova(null,full)$'Pr(>F)'[2]
                 }
                 dfii$int.coef=int.coef
                 dfii$int.pvalue=int.pvalue
+                dfii$int.vexp=int.vexp
         }
         return(list(twoLocus=dfi, threeLocus=dfii))
     }
     names(jointInteractionPeaks[[cross.name]])=names(jPs)
 }
 #save(jointInteractionPeaks, file='/data/rrv2/genotyping/RData/jointInteractionPeaks.RData')
-#interactionPeaks.flat=do.call('rbind', lapply(jointInteractionPeaks, function(y){ lapply(y, function(z) z$twoLocus) } ) )
+#save(jointInteractionPeaks, file='/data/rrv2/genotyping/RData/jointInteractionPeaksVE.RData')
+load('/data/rrv2/genotyping/RData/jointInteractionPeaks.RData')
 interactionPeaks.flat=rbindlist(lapply(jointInteractionPeaks, function(y){ rbindlist(lapply(y, function(z) z$twoLocus),idcol='trait') } ) , idcol='cross')
 interactionPeaks.flat=interactionPeaks.flat[interactionPeaks.flat$trait!="YPD;;2" & interactionPeaks.flat$trait!="YPD;;3",]
 plot(qvalue(interactionPeaks.flat$int.pvalue))
 
+q1=(qvalue(interactionPeaks.flat$int.pvalue))
+sum(q1$qvalue<.05, na.rm=T)
+
 interactionPeaks.flat3D=rbindlist(lapply(jointInteractionPeaks, function(y){ rbindlist(lapply(y, function(z) z$threeLocus),idcol='trait') } ) , idcol='cross')
 #whoops
 interactionPeaks.flat3D=interactionPeaks.flat3D[interactionPeaks.flat3D$chr2!=interactionPeaks.flat3D$chr3,]
+
 q3d=qvalue(interactionPeaks.flat3D$int.pvalue)
+sum(q3d$qvalue<.05, na.rm=T)
+
 plot(q3d)
 
 ipSig=interactionPeaks.flat3D[which(q3d$qvalues<.05),]

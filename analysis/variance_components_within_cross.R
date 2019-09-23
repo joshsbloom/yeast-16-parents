@@ -4,6 +4,7 @@ library(ggplot2)
 library(cowplot)
 library(reshape)
 library(data.table)
+library(Matrix)
 
 # within cross  variance components analysis ---------------------------------------------------------------------------
 
@@ -20,8 +21,10 @@ load('/data/rr/Phenotyping/NORMpheno.RData')
 # QTL mapping results
 load('/data/rrv2/genotyping/RData/FDR_cross.peaks.RData')
 
+source('/data/rrv2/genotyping/code/segregants_hmm_fx.R')
 # list to hold output
 cross.VCs=list()
+cross.VCs2=list()
 for(cross.name in crosses[1:16]) {
     print(cross.name)
     cross=cross.list[[cross.name]]
@@ -67,13 +70,18 @@ for(cross.name in crosses[1:16]) {
             # ZAAAZt=as.matrix(pproc$Z%*%(A*A*A)%*%t(pproc$Z))
             tryCatch({
                 cross.VCs[[cross.name]][[pheno]]=extractVarCompResultsR(regress(pproc$y~1,~ZZt+ZQZt+ZAZt+ZQQZt+ZQAZt+ZAAZt, verbose=T,  pos=rep(T, 12)))
+                cross.VCs2[[cross.name]][[pheno]]=extractVarCompResultsR(regress(pproc$y~1,~ZZt+ZQZt+ZAZt+ZAAZt, verbose=T,  pos=rep(T, 5)))
+
             },error=function(e) {
                 cross.VCs[[cross.name]][[pheno]]=extractVarCompResultsR(regress(scale(pproc$y)~1,~ZZt+ZQZt+ZAZt+ZQQZt+ZQAZt+ZAAZt, verbose=T))
+                cross.VCs2[[cross.name]][[pheno]]=extractVarCompResultsR(regress(scale(pproc$y)~1,~ZZt+ZQZt+ZAZt+ZAAZt, verbose=T))
             })
    }
 }
+
 # currently finished B
 #save(cross.VCs, file='/data/rrv2/genotyping/RData/withinCrossVCs_FDR.RData')
+#save(cross.VCs2, file='/data/rrv2/genotyping/RData/withinCrossVCs2_FDR.RData')
 load(  '/data/rrv2/genotyping/RData/withinCrossVCs_FDR.RData')
 
 #save(cross.VCs, file='/data/rrv2/genotyping/RData/withinCrossVCs.RData')
@@ -154,8 +162,101 @@ inset_plot=ggplot(WCggplot, aes(x=non_additive/additive))+geom_histogram(binwidt
  ggdraw() +
     draw_plot(main_plot)+
     draw_plot(inset_plot, x=.01, y=.52, width=.45, height=.45)
-ggsave('/home/jbloom/Dropbox/RR/Figures and Tables/Figure2.png', width=8.5,height=8.5)
+ggsave('/home/jbloom/Dropbox/Manuscripts/RR/Figures and Tables/Figure2.pdf', width=8.5,height=8.5)
 #---------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+############################################################################################################################3
+# reviewer comment to fit single component epistasis model 
+WC.sigma2=sapply(cross.VCs2, function(x) sapply(x[-c(37,38)], function(y) y$sigma[rev(c(2:4,1,5))] ))
+WC.sigma2.se=sapply(cross.VCs2, function(x) sapply(x[-c(37,38)], function(y) sqrt(diag(y$sigma.cov)[rev(c(2:4,1,5))])))
+WC.sigma2.nf=sapply(WC.sigma2, colSums)
+WC.sigma2.norm=mapply(function(x,y) {
+            z=t(t(x)/y)
+            #z=z[rev(c(2:6,1,7)),]
+            return(z)
+            }, x=WC.sigma2, y=WC.sigma2.nf)
+
+
+WC.sigma2.norm.pos=lapply(WC.sigma2.norm, function(x) {
+                    apply(x, 2, function(x) rev(cumsum(rev(x))))
+            })
+WC.sigma2.se.norm=mapply(function(x,y) {
+            z=t(t(x)/y)
+            #z=z[rev(c(2:6,1,7)),]
+            return(z)
+            }, x=WC.sigma2.se, y=WC.sigma2.nf)
+
+
+# histogram of heritability explained by additive QTL
+Q2=unlist(sapply(WC.sigma2.norm, function(x) x[5,]))
+Q_A2=unlist(sapply(WC.sigma2.norm, function(x) x[5,]+x[4,]))
+Q_AA2=unlist(sapply(WC.sigma2.norm, function(x) (x[3,])))
+
+WCggplot$tc=paste0(WCggplot$trait, WCggplot$cross, sep="_")
+WCggplot2$tc=paste0(WCggplot2$trait, WCggplot2$cross, sep="_")
+
+twomodels.comp=merge(WCggplot, WCggplot2, by='tc')
+png(file='/home/jbloom/Dropbox/Manuscripts/RR/Figures and Tables/one_vs_three_QQ.png', width=512, height=512)
+plot(twomodels.comp$non_additive.x, twomodels.comp$non_additive.y, 
+     xlim=c(0,.5), ylim=c(0,.5),
+     xlab=" Q ○ Q  + Q ○ A  +  A ○ A", ylab="A ○ A"
+)
+abline(0,1)
+dev.off()
+
+WCggplot2=data.frame(trait=as.vector(do.call('c', sapply(WC.sigma2.norm, function(x) names(x[1,])))),
+               cross=rep(names(WC.sigma2.norm), sapply(WC.sigma2.norm, ncol)),
+               additive=Q_A2, non_additive=Q_AA2, additive_plus_non_additive=Q_A2+Q_AA2)
+
+
+WCV2=melt(WC.sigma2.norm)
+WCV2.se=melt(WC.sigma2.se.norm)
+ypos2=melt(WC.sigma2.norm.pos)
+names(WCV2)=c('Component', 'Trait', 'fraction_of_variance', 'Cross')
+WCV2$se=WCV2.se[,3]
+WCV2$ypos=ypos2[,3]
+#WCV=WCV[WCV$Trait!='4NQO;0.15ug/mL;3',]
+WCV2$Cross=factor(WCV2$Cross, levels=crosses)
+#WCV$se[as.character(WCV$Component)=='ZQZt']=NA
+WCV2$Component=plyr::revalue(WCV2$Component, c("In"="Residual", "ZZt"="Repeatibility", "ZAAZt"="A ○ A",  "ZAZt"="A", "ZQZt"="Q"))
+WCV2=WCV2[WCV2$Trait!='YPD;;2',]
+WCV2=WCV2[WCV2$Trait!='YPD;;3',]
+WCV2$Trait=droplevels(WCV2$Trait)
+
+levels(WCV2$Trait)[34]='YNB_ph8'
+levels(WCV2$Trait)[36]='YPD_15C'
+levels(WCV2$Trait)[33]='YNB_ph3'
+levels(WCV2$Trait)[10]='EtOH_Glu'
+levels(WCV2$Trait)[37]='YPD_37C'
+levels(WCV2$Trait)=gsub(';.*','', levels(WCV2$Trait))
+levels(WCV2$Trait)=gsub('_', ' ', levels(WCV2$Trait))
+
+sup.table.2c=WCV2
+sup.table.2c=sup.table.2c[,c(2,4,1,3,5)]
+WriteXLS(c('sup.table.2c'), 
+         "/home/jbloom/Dropbox/Manuscripts/RR/Figures and Tables/SupplementaryTable2_2.xls", SheetNames=c('multiple_components, 2'))
+######################################################################################################################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

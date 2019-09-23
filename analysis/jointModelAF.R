@@ -263,17 +263,29 @@ Fig3C=ggplot(r2MeanEffect)+geom_point(alpha=.4, size=.75, aes(x=maf2,y=MeanAbsBe
     scale_x_continuous(name='Derived allele frequency', breaks=seq(0,1,.1), expand=c(0.01,0)) +
     scale_y_continuous(name='Average effect, SD units', limits=c(-1,1), breaks=seq(-1,1,.1), expand=c(0,0))+theme_bw()
 ggarrange(Fig3A,Fig3Blank,Fig3B, Fig3C, ncol=2, nrow=2, labels=c('A','','B', 'C'))
-ggsave(file='E:/Dropbox/RR/Figures and Tables/Figure3.png',width=11,height=11)
+ggsave(file='/home/jbloom/Dropbox/Manuscripts/RR/Figures and Tables/Figure3.pdf',width=11,height=11)
 #------------------------------------------------------------------------------------------------------------------
 
-
+#Supplementary Figure 5 ----------------------------
+label_trait=utraits
+names(label_trait)=utraits.orig
+ggplot(r2MeanEffect)+geom_point(alpha=.4, size=.75, aes(x=maf1012,y=abs(MeanAbsBeta)))+ #,color=density))+
+    #scale_color_viridis(option = "inferno", direction=1,end=1)+
+    scale_x_continuous(name='Minor allele frequency', breaks=seq(0,1,.1)) +
+    scale_y_continuous(name='Average absolute effect, SD units', limits=c(0,1), breaks=seq(0,1,.2), expand=c(0,0))+theme_bw()+
+    facet_wrap(~trait, ncol=4, labeller=as_labeller(label_trait))+
+    theme(panel.grid.major = element_line(colour = "#80808022"))+
+    theme(panel.grid.minor = element_line(colour = "#80808022"))
+ggsave('/home/jbloom/Dropbox/Manuscripts/RR/Figures and Tables/SupplementaryFigure5.pdf', width=8,height=11)
+#------------------------------------------------------------------------------------
 
 
 # Supplementary Figure 6  --------------------------------------------------------------------------------
 sr2=r2MeanEffect
 #sr2$ve=4*r2MeanEffect$maf1012*(1-r2MeanEffect$maf1012)*r2MeanEffect$MeanAbsBeta^2
 #sr2$ve=abs(r2MeanEffect$MeanAbsBeta)
-sr2$ve=4*(r2MeanEffect$crossCount/32)*(1-(r2MeanEffect$crossCount/32))*r2MeanEffect$MeanAbsBeta^2
+#sr2$ve=4*(r2MeanEffect$crossCount/32)*(1-(r2MeanEffect$crossCount/32))*r2MeanEffect$MeanAbsBeta^2
+sr2$ve=2*(r2MeanEffect$crossCount/32)*(1-(r2MeanEffect$crossCount/32))*r2MeanEffect$MeanAbsBeta^2
 
 sr2=split(sr2, sr2$trait)
 names(sr2)=as.character(levels(WCV$Trait))

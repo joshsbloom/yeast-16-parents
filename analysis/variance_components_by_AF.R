@@ -78,6 +78,8 @@ for(chrom in unique.chrs) {
         x=(seg.chr.genos[[cc]]*2)-1
         big.mat[rownames(x), colnames(x)]=x
     }
+    #write.table(big.mat, file=paste0('/data/rrv2/data/joint_biallelic_coding_',chrom, '.tsv'),row.names=T, col.names=NA, sep='\t',quote=F)
+    
     bmr.scaled=apply(big.mat,2, function(x) {
                 goodx=x!=0
                 y=x[goodx]
@@ -469,7 +471,7 @@ dd=ggplot(JCV.af.private7.1, aes(x=Trait,y=fraction_of_variance, fill=Component)
     theme(axis.text.x=element_text(angle=70,hjust=1))+ scale_fill_manual(name = "Allele frequency", values=tim.colors(7))
     #ggtitle('Allele-frequency bins variance component analysis (private variants in mapping panel only)')
 ggarrange(bb, cc,dd, ncol=1, nrow=3, heights=c(2,2,2),  labels=c('A','B', 'C'))
-ggsave(file='/home/jbloom/Dropbox/RR/Figures and Tables/SupplementaryFigure3.png',width=8.5,height=13)
+ggsave(file='/home/jbloom/Dropbox/Manuscripts/RR/Figures and Tables/SupplementaryFigure3.pdf',width=8.5,height=13)
 
 #--------------------------------------------------------------------------------------------------------------------------------------------------
 

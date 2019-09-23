@@ -568,7 +568,7 @@ CG2=ggplot(d12, aes(x=pos,y=r^2, color=cross))+geom_point()+ylab(expression(r^2)
           axis.text.y=element_text(size=rel(1),color='black'))
 
 ggarrange(CG2, CG1, nrow=2, labels=c('A', 'B'), heights=c(3,1))
-ggsave(file='~/Dropbox/RR/Figures and Tables/Figure4.png', width=9, height=8.58) # width=6, height=7)
+ggsave(file='/home/jbloom/Dropbox/Manuscripts/RR/Figures and Tables/Figure4.pdf', width=9, height=8.58) # width=6, height=7)
 #----------------------------------------------------------------------------------------------------------------------------------
 
 
