@@ -2,7 +2,7 @@
 
 processed genotypes and phenotypes are located [here](https://www.dropbox.com/sh/jqm7a11zz9laytd/AABaE0EfQxLH6ounPhJ7yYWya?dl=0)
 
-sequencing data for each cross is available on the SRA [stay tuned]
+sequencing data for each cross is available on the SRA [PRJNA54976](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA549760/)
 ___
 see [mapping](analysis/mapping.R) for main analysis script
 ___
